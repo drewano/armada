@@ -1,6 +1,6 @@
 """Shared perf-settings helpers: cpulist grammar, tweaks merge, the
 STATE_FILE contract (armada-control writes policy, armada-powerd enforces),
-and gamescope thread enforcement."""
+gamescope thread enforcement, and the Steam UI nice boost."""
 import json
 import os
 import pathlib
@@ -16,9 +16,16 @@ DEVICE_ENV_HELPER = "/usr/libexec/armada/device-env"
 CORE_PRESETS = ("all", "big", "prime", "little")
 SCHEDULERS = ("eevdf", "cosmos", "lavd")
 GAMESCOPE_COMMS = ("gamescope", "gamescope-wl")
+UI_COMMS = ("steamwebhelper",)
 RR_PRIORITY = 40
 NICE_MIN, NICE_MAX = -20, 19
 GAMESCOPE_NICE_MIN, GAMESCOPE_NICE_MAX = -20, 19
+# steamwebhelper renders the whole GamepadUI incl. the QAM drawer. Under a
+# FEX game (dozens of runnable threads + reclaim + GPU contention) the UI's
+# bursty render threads lose their latency targets and the CEF surface can
+# wedge ("Invalid browser dimensions: 0 x 0"); Steam itself already runs parts
+# of steamwebhelper at -1 — this extends that headroom without touching the game.
+UI_NICE = -10
 
 def parse_cpulist(text):
     # Order preserved: feeds WINE_CPU_TOPOLOGY (reported CPU i = host list[i]).
@@ -148,6 +155,8 @@ def sanitize_perf(settings, env=None):
     if isinstance(settings.get("gamescopeNice"), int):
         clean["gamescopeNice"] = clamp(
             settings["gamescopeNice"], GAMESCOPE_NICE_MIN, GAMESCOPE_NICE_MAX)
+    if isinstance(settings.get("uiNice"), int):
+        clean["uiNice"] = clamp(settings["uiNice"], NICE_MIN, NICE_MAX)
     if isinstance(settings.get("gamescopeRr"), bool):
         clean["gamescopeRr"] = settings["gamescopeRr"]
     if "gamescopeCores" in settings:
@@ -192,6 +201,7 @@ def effective_state(state):
         "gamescopeNice": 0,
         "gamescopeRr": False,
         "gamescopeCores": None,
+        "uiNice": UI_NICE,
         "scheduler": "eevdf",
         "schedulerDomain": None,
     }
@@ -204,7 +214,7 @@ def effective_state(state):
     return values
 
 
-def gamescope_pids():
+def pids_by_comm(comms):
     pids = []
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
@@ -214,9 +224,17 @@ def gamescope_pids():
                 comm = f.read().strip()
         except OSError:
             continue
-        if comm in GAMESCOPE_COMMS:
+        if comm in comms:
             pids.append(int(entry))
     return pids
+
+
+def gamescope_pids():
+    return pids_by_comm(GAMESCOPE_COMMS)
+
+
+def ui_pids():
+    return pids_by_comm(UI_COMMS)
 
 
 def process_tids(pid):
@@ -303,3 +321,20 @@ def apply_gamescope(values):
                         os.sched_setaffinity(tid, all_cpus)
                     except OSError:
                         continue
+
+
+def apply_ui_boost(values):
+    # Idempotent per-tick enforcement, same contract as apply_gamescope.
+    # >= 0 is the explicit opt-out (uiNice: 0 in game-tweaks.json): untouched.
+    nice = values.get("uiNice") if isinstance(values, dict) else None
+    if nice is None:
+        nice = UI_NICE
+    nice = clamp(nice, NICE_MIN, NICE_MAX)
+    if nice >= 0:
+        return
+    for pid in ui_pids():
+        for tid in process_tids(pid):
+            try:
+                os.setpriority(os.PRIO_PROCESS, tid, nice)
+            except OSError:
+                continue

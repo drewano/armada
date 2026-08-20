@@ -113,12 +113,51 @@ check("bad cores dropped", "cores" not in clean)
 check("wineTopology false kept", clean["wineTopology"] is False)
 check("unset keys stay absent", ap.sanitize_perf({}, ENV) == {})
 
+clean_ui = ap.sanitize_perf({"uiNice": 99}, ENV)
+check("ui nice clamped", clean_ui["uiNice"] == ap.NICE_MAX)
+check("ui nice passes through", ap.sanitize_perf({"uiNice": -7}, ENV)["uiNice"] == -7)
+
 state = {"global": {"gamescopeNice": -5, "gamescopeCores": [3, 4, 5, 6, 7]},
          "override": {"gamescopeCores": ALL, "gamescopeRr": True, "pid": 1}}
 eff = ap.effective_state(state)
 check("override all clears restrictive global", eff["gamescopeCores"] == ALL)
 check("global survives where override silent", eff["gamescopeNice"] == -5)
 check("override wins", eff["gamescopeRr"] is True)
+check("ui nice default", ap.effective_state({})["uiNice"] == ap.UI_NICE)
+check("ui nice survives absent layers", eff["uiNice"] == ap.UI_NICE)
+layered = ap.effective_state({"global": {"uiNice": 0}})
+check("ui nice zero opt-out honored", layered["uiNice"] == 0)
+
+# apply_ui_boost: threads targeted by tid, opt-out is a no-op
+boost_calls = []
+real_ui_pids, real_setpriority = ap.ui_pids, ap.os.setpriority
+ap.ui_pids = lambda: [os.getpid()]
+ap.os.setpriority = lambda which, who, nice: boost_calls.append((who, nice))
+try:
+    ap.apply_ui_boost({"uiNice": -7})
+    own_tids = set(ap.process_tids(os.getpid()))
+    check("ui boost covers every thread", boost_calls and all(n == -7 for _, n in boost_calls))
+    check("ui boost targets the pid's tids", {who for who, _ in boost_calls} == own_tids)
+    boost_calls.clear()
+    ap.apply_ui_boost({"uiNice": 0})
+    check("non-negative ui nice is a no-op", boost_calls == [])
+    ap.apply_ui_boost({})
+    check("missing ui nice falls back to default", boost_calls and all(n == ap.UI_NICE for _, n in boost_calls))
+finally:
+    ap.ui_pids = real_ui_pids
+    ap.os.setpriority = real_setpriority
+
+# ui_pids finds processes by comm (steamwebhelper is 14 chars, under the 15-char cap)
+fake_ui = subprocess.Popen(
+    ["python3", "-c",
+     'import ctypes, time; ctypes.CDLL("libc.so.6").prctl(15, b"steamwebhelper", 0, 0, 0); time.sleep(30)'],
+    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+try:
+    time.sleep(0.5)
+    check("ui comm scan finds fake webhelper", fake_ui.pid in ap.ui_pids())
+finally:
+    fake_ui.terminate()
+    fake_ui.wait()
 
 tweaks = {"global": {"fexProfile": "default", "nice": -3},
           "games": {"620": {"nice": 0, "cores": "big"},
@@ -287,7 +326,7 @@ finally:
     control.run = real_control_run
 
 with ap.TWEAKS_CONFIG.open("w") as f:
-    json.dump({"global": {"gamescopeNice": -5},
+    json.dump({"global": {"gamescopeNice": -5, "uiNice": -6},
                "games": {"620": {"gamescopeRr": True, "scheduler": "cosmos",
                                  "cores": "big", "nice": -4}}}, f)
 
@@ -295,6 +334,7 @@ sel = selectors.DefaultSelector()
 manager = control.PerfManager(sel)
 state = ap.read_state()
 check("refresh writes global layer", state["global"].get("gamescopeNice") == -5)
+check("refresh writes ui nice layer", state["global"].get("uiNice") == -6)
 check("no override at startup", "override" not in state)
 
 child = subprocess.Popen(["sleep", "30"])
