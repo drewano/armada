@@ -487,6 +487,7 @@ class ArmadaPower:
         try:
             values = armada_perf.effective_state(armada_perf.read_state())
             armada_perf.apply_gamescope(values)
+            armada_perf.apply_ui_boost(values)
             self.enforce_scheduler(values)
         except Exception as exc:
             print(f"armada-powerd: perf tick failed: {exc}", file=sys.stderr)
