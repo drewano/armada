@@ -25,6 +25,15 @@
                     }
                 }
             ],
+            "ghcr.io/drewano/armada": [
+                {
+                    "type": "sigstoreSigned",
+                    "keyPaths": ["/etc/pki/containers/drewano.pub"],
+                    "signedIdentity": {
+                        "type": "matchRepository"
+                    }
+                }
+            ],
             "": [
                 {
                     "type": "insecureAcceptAnything"
