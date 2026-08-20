@@ -82,6 +82,15 @@ resume_radios() {
     done < "$SAVE_DIR/radios"
 }
 
+should_suspend_radios() {
+    # Odin 2 / SM8550 s2idle burns without this; keep opt-out.
+    # ARMADA_SUSPEND_RADIOS=0 explicitly disables, 1 forces, unset auto-detects SM8550.
+    if [[ "${ARMADA_SUSPEND_RADIOS:-}" == "0" ]]; then return 1; fi
+    if [[ "${ARMADA_SUSPEND_RADIOS:-}" == "1" ]]; then return 0; fi
+    eval "$(/usr/libexec/armada/device-env 2>/dev/null)" 2>/dev/null || true
+    [[ "${ARMADA_SOC_CLASS:-}" == "SM8550" ]]
+}
+
 runtime_pm_devices() {
     local dev
     # Leave GPU runtime PM alone here; the GMU is known to wedge under
@@ -251,8 +260,12 @@ do_suspend() {
     block_input
     display_off   # gamescope drm_sleep (game) / bl_power (desktop); after Steam's animation
     freeze_processes
-    # Radio suspend disabled until we can improve resume speed (currently takes 30+ seconds)
-    # suspend_radios
+    if should_suspend_radios; then
+        log "suspending radios (SM8550 thermal)"
+        suspend_radios
+    else
+        log "radio suspend skipped (ARMADA_SUSPEND_RADIOS=0 or non-SM8550)"
+    fi
     if ! timeout 10 /usr/bin/armada-power suspend; then
         log "armada-power suspend failed; aborting fake suspend"
         do_resume
@@ -267,8 +280,10 @@ do_resume() {
     log "leaving fake suspend"
     resume_runtime_pm
     timeout 10 /usr/bin/armada-power resume || log "armada-power resume timed out"
-    # Radio suspend disabled until we can improve resume speed (currently takes 30+ seconds)
-    # resume_radios
+    if [[ -s "$SAVE_DIR/radios" ]]; then
+        log "resuming radios"
+        resume_radios
+    fi
     unfreeze_processes
     unblock_input
     unmute_audio

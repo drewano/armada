@@ -1,0 +1,96 @@
+#!/bin/bash
+# SM8550 s2idle thermal mitigation (Odin 2 / SM8550 family).
+# Runs as a systemd-sleep hook, so it covers BOTH fake-suspend-via-systemd
+# and real s2idle/deep. Fake-suspend also has its own in-process radio
+# gating — this hook is the safety net and the real-s2idle path.
+# References: armada#274 (AOSD/CXSD never entered), #264 (BT drain),
+# #265 (right-side heat), Pocknix 0210 (sdhci downstream), lore 20260723 dwc3 PHY.
+set -uo pipefail
+
+HOOK_TAG="sm8550-s2idle-thermal"
+STATE_DIR="/run/armada/sm8550-thermal"
+LOG() { logger -t "$HOOK_TAG" -- "$*" 2>/dev/null || true; echo "$HOOK_TAG: $*" >&2; }
+
+phase="${1:-}"
+action="${2:-}"
+
+# Only act on suspend/hibernate. Scope to SM8550; no-op elsewhere.
+is_sm8550() {
+    local soc
+    soc="$(/usr/libexec/armada/device-env 2>/dev/null | sed -n 's/^ARMADA_SOC_CLASS=//p' | tr -d "'\"" 2>/dev/null)" || true
+    [[ "$soc" == "SM8550" ]]
+}
+
+should_block_radios() {
+    # Respect explicit opt-out; otherwise SM8550 always blocks BT on suspend.
+    if [[ "${ARMADA_SUSPEND_RADIOS:-}" == "0" ]]; then return 1; fi
+    return 0
+}
+
+# Pre-suspend: rfkill BT (biggest win per #264), mark state for resume.
+do_pre() {
+    is_sm8550 || return 0
+    mkdir -p "$STATE_DIR"
+    : > "$STATE_DIR/radios"
+
+    if ! should_block_radios; then
+        LOG "radio block skipped (ARMADA_SUSPEND_RADIOS=0)"
+        return 0
+    fi
+
+    # BT is the dominant s2idle vote holder on Odin 2 (#264: 81->56% in 90min -> ~1%/h when blocked).
+    if command -v rfkill >/dev/null 2>&1 && rfkill list bluetooth >/dev/null 2>&1; then
+        if rfkill list bluetooth 2>/dev/null | grep -q 'Soft blocked: yes'; then
+            LOG "bluetooth already blocked"
+        else
+            if rfkill block bluetooth 2>/dev/null; then
+                echo bluetooth >> "$STATE_DIR/radios"
+                LOG "blocked bluetooth for s2idle"
+            else
+                LOG "failed to block bluetooth"
+            fi
+        fi
+    fi
+
+    # WiFi is the second voter; armada already keeps it via NetworkManager ignore-sleep
+    # on fake-suspend. For real s2idle we block it too when radios are gated.
+    # Only do this when NOT in fake mode (fake keeps wifi associated by design).
+    local mode
+    mode="$(/usr/libexec/armada/device-env 2>/dev/null | sed -n 's/^ARMADA_SUSPEND_MODE=//p' | tr -d "'\"" 2>/dev/null)" || true
+    if [[ "$mode" != "fake" ]] && command -v rfkill >/dev/null 2>&1 && rfkill list wifi >/dev/null 2>&1; then
+        if ! rfkill list wifi 2>/dev/null | grep -q 'Soft blocked: yes'; then
+            if rfkill block wifi 2>/dev/null; then
+                echo wifi >> "$STATE_DIR/radios"
+                LOG "blocked wifi for real s2idle"
+            fi
+        fi
+    fi
+
+    # Best-effort: let USB PHY drop its vote before s2idle. The real fix is
+    # the dwc3 qcom PHY backport in armada-packages; this just nudges runtime PM.
+    for pm in /sys/bus/platform/devices/*.usb/power/control /sys/devices/platform/soc@0/*.usb/power/control; do
+        [[ -w "$pm" ]] && echo auto >"$pm" 2>/dev/null || true
+    done
+}
+
+# Post-suspend: restore radios that we blocked, drop state.
+do_post() {
+    is_sm8550 || return 0
+    [[ -r "$STATE_DIR/radios" ]] || return 0
+
+    local kind
+    while IFS= read -r kind; do
+        [[ -n "$kind" ]] || continue
+        if command -v rfkill >/dev/null 2>&1; then
+            rfkill unblock "$kind" 2>/dev/null && LOG "restored $kind" || LOG "failed to restore $kind"
+        fi
+    done < "$STATE_DIR/radios"
+    rm -f "$STATE_DIR/radios"
+    rmdir "$STATE_DIR" 2>/dev/null || true
+}
+
+case "$phase/$action" in
+    pre/suspend|pre/hibernate)  do_pre ;;
+    post/suspend|post/hibernate) do_post ;;
+    *) exit 0 ;;
+esac

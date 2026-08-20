@@ -81,4 +81,21 @@ if [[ "${ARMADA_SOC_CLASS:-}" == "SM8550" ]]; then
     if [[ -w "$uic_timeout" ]]; then
         echo 3000 >"$uic_timeout"
     fi
+
+    # s2idle thermal: the SM8550 RPMh never enters AOSD/CXSD when radios
+    # or USB PHY stay voting (armada#274, #264, #265). This is the
+    # userspace half — the kernel half is in armada-packages (dwc3 qcom
+    # PHY + sdhci-msm downstream from Pocknix 0210). Together they drop
+    # s2idle from always-on floor to deep sleep and kill the right-side
+    # heat on Odin 2.
+    if [[ "${ARMADA_SUSPEND_MODE:-fake}" != "fake" ]]; then
+        # Ensure USB controllers can runtime-suspend before s2idle.
+        for usb_pm in /sys/bus/platform/devices/*.usb/power/control; do
+            [[ -w "$usb_pm" ]] && echo auto >"$usb_pm" 2>/dev/null || true
+        done
+        # MMC runtime PM hint — SD root still works; we only set autosuspend.
+        for mmc_pm in /sys/bus/mmc/devices/*/power/control /sys/class/mmc_host/*/power/control; do
+            [[ -w "$mmc_pm" ]] && echo auto >"$mmc_pm" 2>/dev/null || true
+        done
+    fi
 fi
