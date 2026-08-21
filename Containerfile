@@ -1,5 +1,5 @@
 ARG FEX_PKG=ghcr.io/armada-os/armada-packages/fex@sha256:7ad92a80e6698245ade709b4f357988dd1520aca25203f7d39659585f2b9948f
-ARG MESA_PKG=ghcr.io/armada-os/armada-packages/mesa@sha256:713eddabb61575b1d9fed5e1c63a7e4459447d34e21d3c0b95f307f9cf54d716
+ARG MESA_PKG=ghcr.io/armada-os/armada-packages/mesa@sha256:ae13f3753c69d6a27f61fe9e8fc6e10ea0418b4c51bcbf2e7815241d7e0c9745
 ARG MESA_ANDROID_PKG=ghcr.io/armada-os/armada-packages/mesa-android@sha256:57b03a625ebdfa12d67210c9642f24f8389c22b319e86ab32715eedfd7ee963b
 ARG MESA_X86_PKG=ghcr.io/armada-os/armada-packages/mesa-x86@sha256:17ca26c35250ce0cd6a98bd13b6a21e06ca44f9e51f299fd008b1e79c4cabfc4
 ARG MANGOHUD_PKG=ghcr.io/armada-os/armada-packages/mangohud@sha256:6ed92b44d267a8d2e1339968b59c2679cfd30e81494d4990dcc2c92e0be4fc10
