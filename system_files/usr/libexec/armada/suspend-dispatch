@@ -56,7 +56,23 @@ user_irq_sum() {
     # Total interrupt count across IRQs whose names look like user input
     # (power key, lid/gpio keys, touchscreens, gamepad MCU on its UART link).
     awk -F: '$0 ~ /pwrkey|pmic_resin|gpio-keys|[Ll]id|rsinput|Gamepad|[Pp]addle|ft5x06|ft5452|Goodix|hynitron|synaptics|dsx|cstxxx|geni_serial_uart/ {
-        split($2, c, " "); for (i in c) s += c[i]
+        n = split($2, c, " ")
+        for (i = 1; i <= n && c[i] ~ /^[0-9]+$/; i++) s += c[i]
+    } END { print s + 0 }' /proc/interrupts
+}
+
+button_irq_sum() {
+    # Like user_irq_sum but EXCLUDES the gamepad MCU UART: that link floods
+    # for seconds after every resume (measured +200..+600 IRQs on RTC wakes
+    # nobody caused), so counting it during a 2 s backoff misreads the tail
+    # of the flood as a button press and aborts the re-suspend. Physical
+    # keys and touchscreens do not flood; a power-button press during the
+    # backoff still shows up here. A gamepad press during the backoff is
+    # not caught, but it does not wake a suspended device either — the
+    # user presses power next and the wake classifier sees pwrkey.
+    awk -F: '$0 ~ /pwrkey|pmic_resin|gpio-keys|[Ll]id|[Pp]addle|ft5x06|ft5452|Goodix|hynitron|synaptics|dsx|cstxxx/ && $0 !~ /geni_serial_uart/ {
+        n = split($2, c, " ")
+        for (i = 1; i <= n && c[i] ~ /^[0-9]+$/; i++) s += c[i]
     } END { print s + 0 }' /proc/interrupts
 }
 
@@ -92,12 +108,12 @@ run_real_suspend() {
     # night; a genuine user wake exits on the first resume, so the cap only
     # bounds true wake storms.
     local max=${ARMADA_RESUSPEND_MAX:-60} n=0 delay=2
-    local pre_user pre_usb post_user post_usb wake_irq wake_name verdict
+    local pre_user pre_usb post_user post_usb pre_btn post_btn wake_irq wake_name verdict
     while :; do
-        pre_user=$(user_irq_sum)
+        pre_user=$(user_irq_sum); pre_btn=$(button_irq_sum)
         pre_usb=$(usb_online)
         "$sleep_bin" suspend "$@"
-        post_user=$(user_irq_sum)
+        post_user=$(user_irq_sum); post_btn=$(button_irq_sum)
         post_usb=$(usb_online)
         wake_irq="$(cat /sys/power/pm_wakeup_irq 2>/dev/null || true)"
         wake_name="$(wake_irq_name "$wake_irq")"
@@ -117,8 +133,8 @@ run_real_suspend() {
             fi
         fi
         if [[ -z "$verdict" ]]; then
-            # Wake IRQ unattributed: fall back to the (flood-blind) counts.
-            if (( post_user > pre_user )); then verdict=user; else verdict=spurious; fi
+            # Wake IRQ unattributed: fall back to button counts (flood-safe).
+            if (( post_btn > pre_btn )); then verdict=user; else verdict=spurious; fi
         fi
 
         if [[ "$verdict" == "user" ]]; then
@@ -132,8 +148,10 @@ run_real_suspend() {
             return 0
         fi
         sleep "$delay"
-        # A button pressed during the backoff must not be swallowed.
-        if (( $(user_irq_sum) > post_user )); then
+        # A button pressed during the backoff must not be swallowed. Count
+        # only physical keys/touch: the gamepad UART is still draining its
+        # resume flood here and would false-positive every time.
+        if (( $(button_irq_sum) > post_btn )); then
             logger -t suspend-dispatch -- "user input during backoff; staying awake"
             return 0
         fi
