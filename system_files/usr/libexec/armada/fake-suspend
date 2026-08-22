@@ -59,11 +59,23 @@ radio_soft_blocked() {
 suspend_radios() {
     command -v rfkill >/dev/null 2>&1 || return 0
 
-    : > "$SAVE_DIR/radios"
+    # Carry over entries whose unblock failed earlier and that are still
+    # blocked — they are ours to restore on the next resume.
+    local -A carry=()
     local kind
+    if [[ -r "$SAVE_DIR/radios" ]]; then
+        while IFS= read -r kind; do
+            [[ -n "$kind" ]] && carry["$kind"]=1
+        done < "$SAVE_DIR/radios"
+    fi
+
+    : > "$SAVE_DIR/radios"
     for kind in wifi bluetooth; do
         rfkill list "$kind" >/dev/null 2>&1 || continue
-        radio_soft_blocked "$kind" && continue
+        if radio_soft_blocked "$kind"; then
+            [[ -n "${carry[$kind]:-}" ]] && printf '%s\n' "$kind" >> "$SAVE_DIR/radios"
+            continue
+        fi
         if rfkill block "$kind"; then
             printf '%s\n' "$kind" >> "$SAVE_DIR/radios"
         else
@@ -75,11 +87,25 @@ suspend_radios() {
 resume_radios() {
     [[ -r "$SAVE_DIR/radios" ]] || return 0
 
-    local kind
+    local kind remaining=""
     while IFS= read -r kind; do
         [[ -n "$kind" ]] || continue
-        rfkill unblock "$kind" || log "failed to restore ${kind}"
+        if rfkill unblock "$kind"; then
+            log "restored ${kind}"
+        else
+            log "failed to restore ${kind} (kept for retry)"
+            remaining+="${kind}"$'\n'
+        fi
     done < "$SAVE_DIR/radios"
+
+    # Keep only entries that still need recovery; a non-empty file keeps the
+    # save dir alive so the next resume retries instead of losing state.
+    if [[ -n "$remaining" ]]; then
+        printf '%s' "$remaining" > "$SAVE_DIR/radios"
+        return 1
+    fi
+    rm -f "$SAVE_DIR/radios"
+    return 0
 }
 
 should_suspend_radios() {
@@ -289,7 +315,12 @@ do_resume() {
     unmute_audio
     display_on
     rm -f "$STATE_FLAG"
-    rm -rf "$SAVE_DIR"
+    # Keep the save dir alive while radio recovery entries remain in it.
+    if [[ ! -s "$SAVE_DIR/radios" ]]; then
+        rm -rf "$SAVE_DIR"
+    else
+        log "keeping save dir: radio recovery pending"
+    fi
 }
 
 case "${1:-sleep}" in

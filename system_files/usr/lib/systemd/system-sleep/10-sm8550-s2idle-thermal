@@ -4,89 +4,123 @@
 # and real s2idle/deep. Fake-suspend also has its own in-process radio
 # gating — this hook is the safety net and the real-s2idle path.
 # References: armada#274 (AOSD/CXSD never entered), #264 (BT drain),
-# #265 (right-side heat), Pocknix 0210 (sdhci downstream), lore 20260723 dwc3 PHY.
+# #265 (right-side heat), lore 20260723 dwc3 PHY + armada-packages 0520/0521.
 set -uo pipefail
 
 HOOK_TAG="sm8550-s2idle-thermal"
 STATE_DIR="/run/armada/sm8550-thermal"
+RADIOS_FILE="$STATE_DIR/radios"
+USBPM_FILE="$STATE_DIR/usb-power-controls"
 LOG() { logger -t "$HOOK_TAG" -- "$*" 2>/dev/null || true; echo "$HOOK_TAG: $*" >&2; }
 
 phase="${1:-}"
 action="${2:-}"
 
-# Only act on suspend/hibernate. Scope to SM8550; no-op elsewhere.
-is_sm8550() {
-    local soc
-    soc="$(/usr/libexec/armada/device-env 2>/dev/null | sed -n 's/^ARMADA_SOC_CLASS=//p' | tr -d "'\"" 2>/dev/null)" || true
-    [[ "$soc" == "SM8550" ]]
+soc_class() {
+    /usr/libexec/armada/device-env 2>/dev/null |
+        sed -n 's/^ARMADA_SOC_CLASS=//p' | tr -d "'\""
 }
 
+is_sm8550() { [[ "$(soc_class)" == "SM8550" ]]; }
+
+# The hook as a whole runs on SM8550, or on any SoC when radios are forced.
+in_scope() { is_sm8550 || [[ "${ARMADA_SUSPEND_RADIOS:-}" == "1" ]]; }
+
+# 1=force (any SoC), 0=never, unset=auto (SM8550 always gates BT on suspend).
 should_block_radios() {
-    # Respect explicit opt-out; otherwise SM8550 always blocks BT on suspend.
-    if [[ "${ARMADA_SUSPEND_RADIOS:-}" == "0" ]]; then return 1; fi
-    return 0
+    case "${ARMADA_SUSPEND_RADIOS:-}" in
+        1) return 0 ;;
+        0) return 1 ;;
+    esac
+    is_sm8550
 }
 
 # Pre-suspend: rfkill BT (biggest win per #264), mark state for resume.
 do_pre() {
-    is_sm8550 || return 0
+    in_scope || return 0
     mkdir -p "$STATE_DIR"
-    : > "$STATE_DIR/radios"
+    : > "$RADIOS_FILE"
+    : > "$USBPM_FILE"
 
     if ! should_block_radios; then
         LOG "radio block skipped (ARMADA_SUSPEND_RADIOS=0)"
-        return 0
-    fi
-
-    # BT is the dominant s2idle vote holder on Odin 2 (#264: 81->56% in 90min -> ~1%/h when blocked).
-    if command -v rfkill >/dev/null 2>&1 && rfkill list bluetooth >/dev/null 2>&1; then
-        if rfkill list bluetooth 2>/dev/null | grep -q 'Soft blocked: yes'; then
-            LOG "bluetooth already blocked"
-        else
-            if rfkill block bluetooth 2>/dev/null; then
-                echo bluetooth >> "$STATE_DIR/radios"
+    else
+        # BT is the dominant s2idle vote holder on Odin 2 (#264: 81->56% in
+        # 90min -> ~1%/h when blocked).
+        if command -v rfkill >/dev/null 2>&1 && rfkill list bluetooth >/dev/null 2>&1; then
+            if rfkill list bluetooth 2>/dev/null | grep -q 'Soft blocked: yes'; then
+                LOG "bluetooth already blocked"
+            elif rfkill block bluetooth 2>/dev/null; then
+                echo bluetooth >> "$RADIOS_FILE"
                 LOG "blocked bluetooth for s2idle"
             else
                 LOG "failed to block bluetooth"
             fi
         fi
-    fi
 
-    # WiFi is the second voter; armada already keeps it via NetworkManager ignore-sleep
-    # on fake-suspend. For real s2idle we block it too when radios are gated.
-    # Only do this when NOT in fake mode (fake keeps wifi associated by design).
-    local mode
-    mode="$(/usr/libexec/armada/device-env 2>/dev/null | sed -n 's/^ARMADA_SUSPEND_MODE=//p' | tr -d "'\"" 2>/dev/null)" || true
-    if [[ "$mode" != "fake" ]] && command -v rfkill >/dev/null 2>&1 && rfkill list wifi >/dev/null 2>&1; then
-        if ! rfkill list wifi 2>/dev/null | grep -q 'Soft blocked: yes'; then
-            if rfkill block wifi 2>/dev/null; then
-                echo wifi >> "$STATE_DIR/radios"
-                LOG "blocked wifi for real s2idle"
+        # WiFi is the second voter; armada keeps it associated via
+        # NetworkManager ignore-sleep on fake-suspend. For real suspend modes
+        # we block it too — fake keeps wifi up by design.
+        local mode
+        mode="$(/usr/libexec/armada/device-env 2>/dev/null |
+            sed -n 's/^ARMADA_SUSPEND_MODE=//p' | tr -d "'\"" )" || true
+        if [[ "$mode" != "fake" ]] && command -v rfkill >/dev/null 2>&1 && rfkill list wifi >/dev/null 2>&1; then
+            if ! rfkill list wifi 2>/dev/null | grep -q 'Soft blocked: yes'; then
+                if rfkill block wifi 2>/dev/null; then
+                    echo wifi >> "$RADIOS_FILE"
+                    LOG "blocked wifi for real suspend"
+                fi
             fi
         fi
     fi
 
-    # Best-effort: let USB PHY drop its vote before s2idle. The real fix is
-    # the dwc3 qcom PHY backport in armada-packages; this just nudges runtime PM.
+    # Best-effort: let USB PHY drop its vote before suspend. The real fix is
+    # the dwc3 qcom PHY backport in armada-packages (0520); this just nudges
+    # runtime PM. Record previous values so do_post can restore them exactly.
+    local pm prev
     for pm in /sys/bus/platform/devices/*.usb/power/control /sys/devices/platform/soc@0/*.usb/power/control; do
-        [[ -w "$pm" ]] && echo auto >"$pm" 2>/dev/null || true
+        [[ -w "$pm" ]] || continue
+        prev="$(cat "$pm" 2>/dev/null)" || continue
+        printf '%s\t%s\n' "$pm" "$prev" >> "$USBPM_FILE"
+        echo auto > "$pm" 2>/dev/null || true
     done
 }
 
-# Post-suspend: restore radios that we blocked, drop state.
+# Post-suspend: restore USB runtime-PM policy, then radios that we blocked.
+# Radio entries that fail to unblock stay in $RADIOS_FILE so a later resume
+# (or the next suspend/post cycle) retries them instead of silently dropping
+# the state.
 do_post() {
-    is_sm8550 || return 0
-    [[ -r "$STATE_DIR/radios" ]] || return 0
+    in_scope || return 0
 
-    local kind
+    local pm prev
+    if [[ -s "$USBPM_FILE" ]]; then
+        while IFS=$'\t' read -r pm prev; do
+            [[ -w "$pm" ]] && echo "$prev" > "$pm" 2>/dev/null ||
+                LOG "failed to restore ${pm}=${prev}"
+        done < <(tac "$USBPM_FILE" 2>/dev/null || cat "$USBPM_FILE")
+        rm -f "$USBPM_FILE"
+    fi
+
+    [[ -s "$RADIOS_FILE" ]] || { rm -f "$RADIOS_FILE"; rmdir "$STATE_DIR" 2>/dev/null || true; return 0; }
+
+    local kind remaining=""
     while IFS= read -r kind; do
         [[ -n "$kind" ]] || continue
-        if command -v rfkill >/dev/null 2>&1; then
-            rfkill unblock "$kind" 2>/dev/null && LOG "restored $kind" || LOG "failed to restore $kind"
+        if command -v rfkill >/dev/null 2>&1 && rfkill unblock "$kind" 2>/dev/null; then
+            LOG "restored $kind"
+        else
+            LOG "failed to restore $kind (will retry on next resume)"
+            remaining+="${kind}"$'\n'
         fi
-    done < "$STATE_DIR/radios"
-    rm -f "$STATE_DIR/radios"
-    rmdir "$STATE_DIR" 2>/dev/null || true
+    done < "$RADIOS_FILE"
+
+    if [[ -n "$remaining" ]]; then
+        printf '%s' "$remaining" > "$RADIOS_FILE"
+    else
+        rm -f "$RADIOS_FILE"
+        rmdir "$STATE_DIR" 2>/dev/null || true
+    fi
 }
 
 case "$phase/$action" in
