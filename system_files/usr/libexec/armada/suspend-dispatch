@@ -44,12 +44,38 @@ fi
 # "right side stays warm"). If the resume was not user-initiated and the
 # charger state did not change, go back to sleep. Bounded and logged; set
 # ARMADA_RESUSPEND_MAX=0 to disable.
+#
+# Wake classification is by the IDENTITY of the IRQ that woke us
+# (/sys/power/pm_wakeup_irq resolved against /proc/interrupts), not by
+# accumulated input-IRQ counts: on Odin 2 the gamepad MCU floods its UART
+# with hundreds of interrupts during every resume — measured +200..+600
+# input IRQs even for RTC wakes nobody caused — so counting cannot tell a
+# user wake from a spurious one. Counts remain only as the fallback when
+# the wake IRQ cannot be resolved.
 user_irq_sum() {
     # Total interrupt count across IRQs whose names look like user input
     # (power key, lid/gpio keys, touchscreens, gamepad MCU on its UART link).
     awk -F: '$0 ~ /pwrkey|pmic_resin|gpio-keys|[Ll]id|rsinput|Gamepad|[Pp]addle|ft5x06|ft5452|Goodix|hynitron|synaptics|dsx|cstxxx|geni_serial_uart/ {
         split($2, c, " "); for (i in c) s += c[i]
     } END { print s + 0 }' /proc/interrupts
+}
+
+wake_irq_name() {
+    # Resolve a wake IRQ number to its name from /proc/interrupts.
+    local irq="${1:-}"
+    [[ -n "$irq" ]] || { echo ""; return; }
+    awk -v want="$irq:" '$1 == want { print $NF; exit }' /proc/interrupts
+}
+
+is_user_wake_irq() {
+    # Does this IRQ name belong to a user-input device? (power/volume keys,
+    # gpio keys, lid, touch digitizers, gamepad MCU — on armada handhelds the
+    # gamepad rides a geni UART, so a UART wake is a button press. A BT
+    # controller wake is also user intent.)
+    local name
+    name="$(wake_irq_name "$1")"
+    [[ -n "$name" ]] || return 2
+    grep -Eqi 'pwrkey|resin|gpio.?keys|keypad|lid|rsinput|gamepad|paddle|ft5|goodix|hynitron|synaptics|cst[0-9]|touch|uart' <<<"$name"
 }
 
 usb_online() {
@@ -61,8 +87,12 @@ usb_online() {
 }
 
 run_real_suspend() {
-    local max=${ARMADA_RESUSPEND_MAX:-5} n=0 delay=2
-    local pre_user pre_usb post_user post_usb wake_irq
+    # Default 60: ADSP battery notices arrive every ~25-40 min, so a 5-deep
+    # cap gave up after ~2-3 h and the device sat awake for the rest of the
+    # night; a genuine user wake exits on the first resume, so the cap only
+    # bounds true wake storms.
+    local max=${ARMADA_RESUSPEND_MAX:-60} n=0 delay=2
+    local pre_user pre_usb post_user post_usb wake_irq wake_name verdict
     while :; do
         pre_user=$(user_irq_sum)
         pre_usb=$(usb_online)
@@ -70,20 +100,35 @@ run_real_suspend() {
         post_user=$(user_irq_sum)
         post_usb=$(usb_online)
         wake_irq="$(cat /sys/power/pm_wakeup_irq 2>/dev/null || true)"
+        wake_name="$(wake_irq_name "$wake_irq")"
 
-        if (( post_user > pre_user )); then
-            logger -t suspend-dispatch -- \
-                "user wake (input irqs +$((post_user - pre_user)), last wake irq ${wake_irq:-unknown})"
-            return 0
-        fi
         if [[ "$post_usb" != "$pre_usb" ]]; then
             logger -t suspend-dispatch -- \
                 "charger event during suspend (usb online $pre_usb->$post_usb); staying awake"
             return 0
         fi
+
+        verdict=""
+        if [[ -n "$wake_irq" ]]; then
+            if is_user_wake_irq "$wake_irq"; then
+                verdict=user
+            elif [[ -n "$wake_name" ]]; then
+                verdict=spurious
+            fi
+        fi
+        if [[ -z "$verdict" ]]; then
+            # Wake IRQ unattributed: fall back to the (flood-blind) counts.
+            if (( post_user > pre_user )); then verdict=user; else verdict=spurious; fi
+        fi
+
+        if [[ "$verdict" == "user" ]]; then
+            logger -t suspend-dispatch -- \
+                "user wake (wake irq ${wake_irq:-?} ${wake_name:-unattributed}, input irqs +$((post_user - pre_user)))"
+            return 0
+        fi
         if (( ++n > max )); then
             logger -t suspend-dispatch -- \
-                "no user wake but staying up after $max spurious resumes (last wake irq ${wake_irq:-unknown})"
+                "no user wake but staying up after $max spurious resumes (last wake irq ${wake_irq:-unknown} ${wake_name:-unknown})"
             return 0
         fi
         sleep "$delay"
@@ -93,7 +138,7 @@ run_real_suspend() {
             return 0
         fi
         logger -t suspend-dispatch -- \
-            "spurious wake (last wake irq ${wake_irq:-unknown}); re-suspending $n/$max"
+            "spurious wake (irq ${wake_irq:-unknown} ${wake_name:-unknown}); re-suspending $n/$max"
     done
 }
 
