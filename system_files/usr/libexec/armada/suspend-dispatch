@@ -28,11 +28,78 @@ elif [[ "$mode" != "mem" ]]; then
 fi
 
 # Real suspend: prefer systemd-sleep so its sleep hooks and process freeze run.
+sleep_bin=""
 if [[ -n "${ARMADA_SYSTEMD_SLEEP:-}" ]]; then
-    exec "$ARMADA_SYSTEMD_SLEEP" suspend "$@"
+    sleep_bin="$ARMADA_SYSTEMD_SLEEP"
+else
+    for b in /usr/lib/systemd/systemd-sleep /lib/systemd/systemd-sleep; do
+        [[ -x "$b" ]] && { sleep_bin="$b"; break; }
+    done
 fi
-for sleep_bin in /usr/lib/systemd/systemd-sleep /lib/systemd/systemd-sleep; do
-    [[ -x "$sleep_bin" ]] && exec "$sleep_bin" suspend "$@"
-done
-# No systemd-sleep found: write the state directly rather than leave sleep dead.
-echo mem > /sys/power/state
+
+# --- Spurious-wake re-suspend guard ---------------------------------------
+# One unplanned wake (ADSP battery notice over glink/ipcc, ucsi churn, thermal
+# IRQ…) otherwise leaves the device fully awake with the screen off at
+# idle-awake power for hours — measured ~5 W on Odin 2 (armada#265/#274:
+# "right side stays warm"). If the resume was not user-initiated and the
+# charger state did not change, go back to sleep. Bounded and logged; set
+# ARMADA_RESUSPEND_MAX=0 to disable.
+user_irq_sum() {
+    # Total interrupt count across IRQs whose names look like user input
+    # (power key, lid/gpio keys, touchscreens, gamepad MCU on its UART link).
+    awk -F: '$0 ~ /pwrkey|pmic_resin|gpio-keys|[Ll]id|rsinput|Gamepad|[Pp]addle|ft5x06|ft5452|Goodix|hynitron|synaptics|dsx|cstxxx|geni_serial_uart/ {
+        split($2, c, " "); for (i in c) s += c[i]
+    } END { print s + 0 }' /proc/interrupts
+}
+
+usb_online() {
+    local u
+    for u in /sys/class/power_supply/*usb*/online /sys/class/power_supply/*USB*/online; do
+        [[ -r "$u" ]] && { cat "$u" 2>/dev/null; return; }
+    done
+    echo 0
+}
+
+run_real_suspend() {
+    local max=${ARMADA_RESUSPEND_MAX:-5} n=0 delay=2
+    local pre_user pre_usb post_user post_usb wake_irq
+    while :; do
+        pre_user=$(user_irq_sum)
+        pre_usb=$(usb_online)
+        "$sleep_bin" suspend "$@"
+        post_user=$(user_irq_sum)
+        post_usb=$(usb_online)
+        wake_irq="$(cat /sys/power/pm_wakeup_irq 2>/dev/null || true)"
+
+        if (( post_user > pre_user )); then
+            logger -t suspend-dispatch -- \
+                "user wake (input irqs +$((post_user - pre_user)), last wake irq ${wake_irq:-unknown})"
+            return 0
+        fi
+        if [[ "$post_usb" != "$pre_usb" ]]; then
+            logger -t suspend-dispatch -- \
+                "charger event during suspend (usb online $pre_usb->$post_usb); staying awake"
+            return 0
+        fi
+        if (( ++n > max )); then
+            logger -t suspend-dispatch -- \
+                "no user wake but staying up after $max spurious resumes (last wake irq ${wake_irq:-unknown})"
+            return 0
+        fi
+        sleep "$delay"
+        # A button pressed during the backoff must not be swallowed.
+        if (( $(user_irq_sum) > post_user )); then
+            logger -t suspend-dispatch -- "user input during backoff; staying awake"
+            return 0
+        fi
+        logger -t suspend-dispatch -- \
+            "spurious wake (last wake irq ${wake_irq:-unknown}); re-suspending $n/$max"
+    done
+}
+
+if [[ -n "$sleep_bin" ]]; then
+    run_real_suspend
+else
+    # No systemd-sleep found: write the state directly rather than leave sleep dead.
+    echo mem > /sys/power/state
+fi
