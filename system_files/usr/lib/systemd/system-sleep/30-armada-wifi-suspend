@@ -1,0 +1,11 @@
+#!/bin/bash
+# Quiesce Wi-Fi radio across system suspend to eliminate ~150mA standby drain and MSI storms
+case "$1" in
+    pre)
+        rfkill block wifi
+        ;;
+    post)
+        rfkill unblock wifi
+        ;;
+esac
+exit 0
