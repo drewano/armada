@@ -8,7 +8,6 @@ import shlex
 import subprocess
 import tempfile
 
-TWEAKS_CONFIG = pathlib.Path("/etc/armada/game-tweaks.json")
 STATE_FILE = pathlib.Path("/run/armada/perf-state.json")
 SESSION_SOCKET = "/run/armada/session.sock"
 DEVICE_ENV_HELPER = "/usr/libexec/armada/device-env"
@@ -115,29 +114,6 @@ def clamp(value, low, high):
     return max(low, min(high, int(value)))
 
 
-def load_tweaks():
-    try:
-        with TWEAKS_CONFIG.open(encoding="utf-8") as f:
-            loaded = json.load(f)
-    except (OSError, ValueError):
-        return {}
-    return loaded if isinstance(loaded, dict) else {}
-
-
-def merged_settings(tweaks, appid):
-    settings = dict(tweaks.get("global") or {})
-    if appid:
-        game = (tweaks.get("games") or {}).get(str(appid))
-        if isinstance(game, dict) and game.get("enabled") is not False:
-            global_env = settings.get("env")
-            settings.update(game)
-            # env merges per-entry (unlike thunks); null = tombstone
-            if isinstance(global_env, dict) and isinstance(game.get("env"), dict):
-                merged_env = {**global_env, **game["env"]}
-                settings["env"] = {k: v for k, v in merged_env.items() if v is not None}
-    return settings
-
-
 def sanitize_perf(settings, env=None):
     # Validated subset of the perf keys, bad values dropped key-by-key.
     clean = {}
@@ -148,8 +124,8 @@ def sanitize_perf(settings, env=None):
                 clean["cores"] = cores
         except ValueError:
             pass
-    if settings.get("wineTopology") is False:
-        clean["wineTopology"] = False
+    if isinstance(settings.get("wineTopology"), bool):
+        clean["wineTopology"] = settings["wineTopology"]
     if isinstance(settings.get("nice"), int):
         clean["nice"] = clamp(settings["nice"], NICE_MIN, NICE_MAX)
     if isinstance(settings.get("gamescopeNice"), int):

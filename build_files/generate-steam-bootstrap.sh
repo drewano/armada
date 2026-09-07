@@ -19,6 +19,7 @@ STEAM_ARM_CDN="https://client-update.steamstatic.com"
 STEAM_ARM_MANIFEST_NAME="steam_client_${STEAM_ARM_CHANNEL}_linuxarm64"
 STEAM_ARM_MANIFEST_URL="${STEAM_ARM_CDN}/${STEAM_ARM_MANIFEST_NAME}"
 STEAM_BOOTSTRAP_TIMEOUT="${STEAM_BOOTSTRAP_TIMEOUT:-900}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 rm -rf "${STEAM_BOOTSTRAP_HOME}"
 mkdir -p "${STEAM}/package" "${DOT_STEAM}"
@@ -121,28 +122,45 @@ export LD_LIBRARY_PATH="${STEAM}/steamrtarm64:${STEAM}/lib/aarch64-linux-gnu"
 
 installed_manifest="${STEAM}/package/${STEAM_ARM_MANIFEST_NAME}.installed"
 
-set +e
-timeout "${STEAM_BOOTSTRAP_TIMEOUT}" \
-    "${STEAM}/steamrtarm64/steam" \
-    -steamdeck \
-    -exitsteam \
-    >/tmp/armada-steam-bootstrap.stdout \
-    2>/tmp/armada-steam-bootstrap.stderr
-steam_rc=$?
-set -e
+verify_installed_manifest() {
+    python3 "${script_dir}/verify-steam-bootstrap.py" \
+        "${installed_manifest}" "${STEAM}"
+}
 
-if [[ "${steam_rc}" == "124" ]]; then
-    echo "ERROR: Steam bootstrap updater timed out" >&2
-    exit 1
-fi
+steam_verified=false
+bootstrap_deadline=$((SECONDS + STEAM_BOOTSTRAP_TIMEOUT))
+for attempt in {1..3}; do
+    remaining_timeout=$((bootstrap_deadline - SECONDS))
+    if ((remaining_timeout <= 0)); then
+        break
+    fi
+    set +e
+    timeout "${remaining_timeout}" \
+        "${STEAM}/steamrtarm64/steam" \
+        -steamdeck \
+        -exitsteam \
+        >/tmp/armada-steam-bootstrap.stdout \
+        2>/tmp/armada-steam-bootstrap.stderr
+    steam_rc=$?
+    set -e
 
-if [[ ! -x "${STEAM}/steamrtarm64/steam" || ! -f "${STEAM}/steamrtarm64/steamui.so" ]]; then
+    if [[ "${steam_rc}" == "124" ]]; then
+        echo "ERROR: Steam bootstrap exhausted its ${STEAM_BOOTSTRAP_TIMEOUT}-second timeout" >&2
+        break
+    fi
+
+    if [[ -x "${STEAM}/steamrtarm64/steam" \
+        && -f "${STEAM}/steamrtarm64/steamui.so" \
+        && -f "${installed_manifest}" ]] \
+        && verify_installed_manifest; then
+        steam_verified=true
+        break
+    fi
+    echo "Steam bootstrap attempt ${attempt} was incomplete (rc ${steam_rc})" >&2
+done
+
+if [[ "${steam_verified}" != "true" ]]; then
     echo "ERROR: Steam bootstrap did not produce a complete ARM64 Steam tree" >&2
-    exit 1
-fi
-
-if [[ ! -f "${installed_manifest}" ]]; then
-    echo "ERROR: Steam bootstrap produced no .installed manifest (last rc ${steam_rc}); the seed would re-install on first boot" >&2
     echo "--- last bootstrap stdout (tail) ---" >&2
     tail -n 30 /tmp/armada-steam-bootstrap.stdout >&2 || true
     echo "--- last bootstrap stderr (tail) ---" >&2
@@ -160,6 +178,7 @@ find "${STEAM_BOOTSTRAP_HOME}" \
     -delete
 find "${STEAM_BOOTSTRAP_HOME}" \( -type s -o -type p \) -delete
 rm -f \
+    "${STEAM}/package/steam_client_metrics.bin" \
     "${STEAM}/registry.vdf" \
     "${STEAM}/ssfn"* \
     "${DOT_STEAM}/registry.vdf" \
@@ -168,7 +187,11 @@ rm -f \
 
 # Steam opens Decky's localhost CEF debugger only when this marker exists.
 touch "${STEAM}/.cef-enable-remote-debugging"
+if ! verify_installed_manifest; then
+    echo "ERROR: Steam bootstrap cleanup removed manifest content" >&2
+    exit 1
+fi
 
 package_count=$(find "${STEAM}/package" -maxdepth 1 -type f | wc -l)
 zipvz_count=$(find "${STEAM}/package" -maxdepth 1 -type f -name '*.zip.vz.*' | wc -l)
-echo "Generated ARM64 Steam bootstrap: ${package_count} package files, ${zipvz_count} compressed payloads, updater rc ${steam_rc}, .installed present"
+echo "Generated ARM64 Steam bootstrap: ${package_count} package files, ${zipvz_count} compressed payloads, updater rc ${steam_rc}, manifest verified"
