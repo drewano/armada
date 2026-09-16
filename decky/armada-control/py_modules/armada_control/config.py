@@ -1,10 +1,12 @@
-from .controller import CONTROLLER_TYPES, controller_type
+from .controller import CONTROLLER_TYPES, controller_type, inputplumber_targets
 from .power import factory_power_defaults, parse_power
+from .rgb import rgb_supported
 from .steam import installed_games
 from .system import (
     abl_auto_enabled,
     abl_version,
     bottom_screen_brightness,
+    bottom_screen_active,
     bottom_screen_enabled,
     device_env,
     mtp_enabled,
@@ -30,7 +32,7 @@ def build_config(include_games=True):
         "fexProfiles": fex_profile_labels(fex_contract),
         "perf": perf_info(),
         "cpuDeviceClass": env.get("ARMADA_SOC_CLASS", ""),
-        "rgbSupported": bool(env.get("ARMADA_RGB_BACKEND")),
+        "rgbSupported": rgb_supported(),
         "protonDefaults": [
             default.strip()
             for default in env.get("ARMADA_PROTON_DEFAULTS", "").split(":")
@@ -44,6 +46,7 @@ def build_config(include_games=True):
         ),
         "bottomScreenEnabled": bottom_screen_enabled(),
         "bottomScreenBrightnessSupported": secondary_brightness is not None,
+        "bottomScreenActive": bottom_screen_active(),
         "bottomScreenBrightness": secondary_brightness or 0,
         "sshEnabled": ssh_enabled(),
         "mtpEnabled": mtp_enabled(),
@@ -52,5 +55,7 @@ def build_config(include_games=True):
         "sleepMode": env.get("ARMADA_SUSPEND_MODE", "s2idle"),
         "sleepModes": sleep_modes(),
         "controllerType": controller_type(),
-        "controllerTypes": [{"data": key, "label": label} for key, label in CONTROLLER_TYPES.items()],
+        "controllerTypes": [
+            {"data": key, "label": CONTROLLER_TYPES[key]} for key in inputplumber_targets(env)
+        ],
     }
