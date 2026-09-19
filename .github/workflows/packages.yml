@@ -72,6 +72,31 @@ jobs:
             args="${args}${var}=${ref}"$'\n'
           done
 
+          # Pin proven-good binaries (drewano/armada, Odin 2 / SM8550 crash
+          # investigation 2026-09-19): gamescope 3.16.29's DPU output-LUT color
+          # management (0017-sdr-color-management-through-dpu-output-luts and
+          # friends) wedges the whole display pipeline on SM8550 within seconds
+          # of session start — steamwebhelper asserts, mangoapp and plasmashell
+          # die, Xwayland pipes break. Mesa 26.2.2/26.2.3 rebuilds and the
+          # kernel were exonerated (bad mesa libs run clean on a
+          # good-gamescope image; the kernel delta is device-scoped).
+          # NOTE: do NOT pin the kernel — armada-bootimg-update walks the
+          # device DTB list from current main (incl. MANGMI), and an older
+          # kernel package lacking those DTBs makes the boot-image sync fail,
+          # so ABL keeps booting the previous deployment (observed 2026-09-19).
+          # Everything except the display stack stays at current main.
+          pin_pkg() {
+            local var="$1" ref="$2" pkg
+            pkg="$(printf '%s' "${var%_REF}" | tr '[:upper:]_' '[:lower:]-')"
+            args="$(printf '%s' "${args}" | grep -v "^${var}=")"$'\n'"${var}=${ref}"$'\n'
+            matrix="$(jq -c --arg p "${pkg}" 'map(select(.package != $p))' <<<"${matrix}")"
+            echo "::notice::pinned ${pkg} to ${ref}"
+          }
+          pin_pkg GAMESCOPE_REF "ghcr.io/armada-os/armada-packages/gamescope@sha256:573d3e6c99f135fcfd23db35eb197dcbe165576d9dc75f2dc7a2b3ce5dd2a39e"
+          pin_pkg GAMESCOPE_SESSION_REF "ghcr.io/armada-os/armada-packages/gamescope-session@sha256:aeb8d4dd376f18d0ea2297e418894ba1b88ad79ce70befc2686f94f20a77dc04"
+          pin_pkg GAMESCOPE_SESSION_STEAM_REF "ghcr.io/armada-os/armada-packages/gamescope-session-steam@sha256:bd9abba8a51c5aad9dd8fb8b1ed4ecf55b7fd26268772658603d73953231a2cf"
+          pin_pkg KWIN_REF "ghcr.io/armada-os/armada-packages/kwin@sha256:515e14f78f19d2abd3f3b73915e260f4b26cf9a0f84dbe55a06bbcb5f9e8ddce"
+
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
           {
             echo "build_args<<BUILD_ARGS_EOF"
