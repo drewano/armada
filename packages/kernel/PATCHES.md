@@ -330,11 +330,11 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0570-scsi-ufs-qcom-deep-suspend-set.patch`
   source: ROCKNIX PR 3126 (jaewun, gh123man)
   upstream: in review
-  notes: Folded UFS deep suspend set (phy linecfg around link startup, HW auto-hibern8 disabled when SW clk-gating owns hibern8 parking, hibern8-exit failure propagated from clk scaling). The remaining pieces of the archived stack live in 0571/0572/0573.
+  notes: Folded UFS deep suspend set (phy linecfg around link startup, HW auto-hibern8 disabled when SW clk-gating owns hibern8 parking, hibern8-exit failure propagated from clk scaling). The remaining pieces of the archived stack live in 0571/0572/0573. The archived drain-relink OOB PM poller (ex-0201) is intentionally not restored: Linux 7.2 switched ufshcd_intr to a plain hard IRQ handler, removing the async completion window it drained.
 - `patches/0571-scsi-ufs-qcom-keep-mphy-powered-on-hibern8-park.patch`
   source: armada-packages sm8550-sleep / ROCKNIX PR 3126 (jaewun)
   upstream: in review
-  notes: Keeps the M-PHY powered when the link is only parked in HIBERN8; scoped to no_phy_retention drvdata (SM8550 only). True LINK_OFF suspend still powers the PHY off.
+  notes: Keeps the M-PHY powered when the link is only parked in HIBERN8; scoped to the no_phy_retention drvdata, which upstream matches for both qcom,sm8550-ufshc and qcom,sm8650-ufshc (SM8550 and SM8650 boards). True LINK_OFF suspend still powers the PHY off.
 - `patches/0572-scsi-ufs-hold-clk-gating-across-system-pm.patch`
   source: armada-packages sm8550-sleep / ROCKNIX PR 3126 (gh123man)
   upstream: in review
