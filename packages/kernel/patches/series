@@ -114,6 +114,9 @@ v9_20260729_qualcomm_crypto_qce_runtime_pm_interconnect.patch
 0560-regulator-qcom-rpmh-add-suspend-state-support.patch
 0561-regulator-core-apply-mem-state-for-s2idle.patch
 0570-scsi-ufs-qcom-deep-suspend-set.patch
+0571-scsi-ufs-qcom-keep-mphy-powered-on-hibern8-park.patch
+0572-scsi-ufs-hold-clk-gating-across-system-pm.patch
+0573-scsi-ufs-recover-hibern8-enter-clk-gating.patch
 0590-thermal-qcom-tsens-skip-sm8550-uplow-wake-irq.patch
 
 # ============== Qualcomm Vendor LPM Cpuidle Governors ==============
