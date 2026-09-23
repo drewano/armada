@@ -307,6 +307,50 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0514a-of-property-honor-iommu-cells-in-iommu-map-devlinks.patch`
   source: armada
   upstream: local
+- `patches/0521-mmc-sdhci-msm-mask-controller-irqs-while-runtime-suspended.patch`
+  source: armada
+  upstream: not submitted
+  notes: Masks sdhci-msm controller IRQs while runtime suspended to stop the mmc0 IRQ storm during s2idle. Scoped to qcom,sm8550/qcom,sm8750 machines (of_machine_is_compatible); other platforms keep stock behavior.
+- `patches/0522-usb-dwc3-qcom-skip-phy-management-by-usb-core.patch`
+  source: lore.kernel.org/all/20260723-dwc3-skip-init-quirk-v1-1-97682bb44ebd@oss.qualcomm.com
+  upstream: in review
+  notes: Stops double phy_init where HCD core holds a reference, preventing dwc3 PHY vote from blocking CX power collapse in s2idle.
+- `patches/0530-hwmon-pwm-fan-quiesce-tach-irqs-and-rpm-timer-across-suspend.patch`
+  source: armada
+  upstream: not submitted
+  notes: Quiesces pwm-fan tachometer interrupts and the 1 Hz polling timer across suspend (self-rearm guard included) to eliminate background wakeups. Scoped to qcom,sm8550/qcom,sm8750 machines; other platforms keep stock behavior.
+- `patches/0560-regulator-qcom-rpmh-add-suspend-state-support.patch`
+  source: ROCKNIX PR 2954 / 3126 (Luke Johnson)
+  upstream: in review
+  notes: Implements regulator-state-mem in qcom-rpmh regulator driver, allowing regulators to be powered down during system suspend. Armed on qcs8550-ayn by the dts delta: vreg_bob2 off-in-suspend, vreg_l15b_1p8 on-in-suspend in LPM. The ops only fire for rails whose DT carries regulator-state-mem.
+- `patches/0561-regulator-core-apply-mem-state-for-s2idle.patch`
+  source: ROCKNIX PR 2954 / 3126 (Luke Johnson)
+  upstream: in review
+  notes: Applies regulator-state-mem constraints to s2idle (PM_SUSPEND_TO_IDLE) on platforms without separate suspend-to-idle DT bindings. Effectively scoped by DT: the ops only fire for rails carrying regulator-state-mem, and in this tree the only such rpmh rails are the qcs8550-ayn bob2/l15b nodes; every other in-tree state-mem sits on fixed regulators where the empty fixed_voltage_ops make it inert.
+- `patches/0570-scsi-ufs-qcom-deep-suspend-set.patch`
+  source: ROCKNIX PR 3126 (jaewun, gh123man)
+  upstream: in review
+  notes: Folded UFS deep suspend set (phy linecfg around link startup, HW auto-hibern8 disabled when SW clk-gating owns hibern8 parking, hibern8-exit failure propagated from clk scaling). The auto-hibern8 quirk is scoped to the qcom,sm8550-ufshc compatible. The remaining pieces of the archived stack live in 0571/0572/0573. The archived drain-relink OOB PM poller (ex-0201) is intentionally not restored: Linux 7.2 switched ufshcd_intr to a plain hard IRQ handler, removing the async completion window it drained.
+- `patches/0571-scsi-ufs-qcom-keep-mphy-powered-on-hibern8-park.patch`
+  source: armada-packages sm8550-sleep / ROCKNIX PR 3126 (jaewun)
+  upstream: in review
+  notes: Keeps the M-PHY powered when the link is only parked in HIBERN8; scoped to the no_phy_retention drvdata, which upstream matches for both qcom,sm8550-ufshc and qcom,sm8650-ufshc (SM8550 and SM8650 boards). True LINK_OFF suspend still powers the PHY off.
+- `patches/0572-scsi-ufs-hold-clk-gating-across-system-pm.patch`
+  source: armada-packages sm8550-sleep / ROCKNIX PR 3126 (gh123man)
+  upstream: in review
+  notes: Holds clock gating across system PM prepare/complete so the gate worker cannot enter DME_HIBER_ENTER mid-suspend; scoped to the qcom,sm8550-ufshc compatible.
+- `patches/0573-scsi-ufs-recover-hibern8-enter-clk-gating.patch`
+  source: armada-packages sm8550-sleep / ROCKNIX PR 3126 (gh123man)
+  upstream: in review
+  notes: Recovers hibern8-enter clock-gating failures inline instead of leaving the link broken. Adapted from the archived version: hba->sm8550_native_sleep_workarounds is set from the qcom,sm8550-ufshc compatible in ufs_qcom_init() instead of the archived sm8550.ns=1 cmdline gate this tree does not carry.
+- `patches/0590-thermal-qcom-tsens-skip-sm8550-uplow-wake-irq.patch`
+  source: ROCKNIX PR 3126 (Edouard Durand)
+  upstream: in review
+  notes: Skips arming SM8550 uplow threshold IRQs as wakeup sources during suspend, preventing immediate false wakeups while keeping critical threshold alarms armed.
+- `patches/0595-cpuidle-governors-qcom-lpm.patch`
+  source: Qualcomm vendor BSP via the AYN Odin 2 GKI 5.15 kernel mirror (github.com/Ayn8550Dev/android_kernel_ayn_qcs8550, drivers/cpuidle/governors/qcom-*-lpm*, last vendor commit 6c65240d9f24), adapted for mainline Linux 7.2
+  upstream: not submitted
+  notes: Ports Qualcomm Low Power Mode (LPM) governors (qcom-simple-lpm and predictive qcom-lpm with cluster governors) for multi-cluster power collapse under handheld gaming workloads. Registering the governors does not elect them: the kernel default stays `menu` until a governor is A/B validated on hardware. Opt in per device with `cpuidle_governor=qcom-simple-lpm` in /etc/armada/sleep.conf (applied at boot by device-quirks).
 - `patches/0001-pcie-update-sm8550-dtsi.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8550/patches/linux/0001-pcie-update-sm8550-dtsi.patch
   upstream: https://lore.kernel.org/r/20260611-wake-v2-33-2744251b1181@oss.qualcomm.com
@@ -641,7 +685,7 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   notes: Armada keeps the AYA Space, Menu, LC, and RC auxiliary keys from waking the system.
 - `dts/qcs8550-ayn-common.dtsi.patch`
   source: armada
-  notes: Armada keeps volume-up from waking the system, removes the SDHCI capability mask, and marks the shared RSInput node as connected to the PM8550B haptics device declared in the same common tree. This intentionally covers the AYN and Retroid products that inherit both nodes, including Pocket 6 and Nova.
+  notes: Armada keeps volume-up from waking the system, removes the SDHCI capability mask, marks the shared RSInput node as connected to the PM8550B haptics device declared in the same common tree, fixes the PCIe WAKE# polarity, and arms the rpmh sleep-vote rails for the deep-suspend stack (vreg_bob2 off-in-suspend, vreg_l15b_1p8 on-in-suspend in LPM — the DT side that activates the 0560/0561 kernel patches). This intentionally covers the AYN and Retroid products that inherit both nodes, including Pocket 6 and Nova.
 - `dts/qcs8550-ayn-odin2portal.dts.patch`
   source: armada
   notes: Adds the back buttons from the Odin 2 DTS into the Odin 2 Portal DTS

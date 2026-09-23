@@ -1,0 +1,127 @@
+From: drewano <drewano@users.noreply.github.com>
+Subject: [PATCH] hwmon: (pwm-fan) quiesce tach IRQs and RPM timer across suspend
+
+pwm_fan_suspend() only powers the PWM off. The tachometer IRQs requested
+in probe() and the self-rearming 1 Hz RPM sampling timer are left running
+across system sleep:
+
+ - a coasting or unpowered fan can flap the tach line while the driver
+   is suspended, and the latched edges skew the first RPM sample after
+   resume (measured: 7.8k tach IRQs on an AYN Thor and 10.3k on a
+   Retroid Pocket 6 during multi-hour s2idle windows);
+ - the RPM timer wakes the last online CPU every second, which keeps the
+   system in shallow idle. On Qualcomm SM8550/SM8750 handhelds this
+   alone blocks CPU cluster power collapse (and with it AOSD) during
+   s2idle, and it is invisible to IRQ-based wakeup attribution because
+   timers do not show up in /proc/interrupts.
+
+Delete the sampling timer and disable the tach IRQs on suspend; re-arm
+them on resume before restoring the PWM. sample_timer() re-arms itself
+from its own callback, which timer_delete_sync() alone does not protect
+against (the timer core only guarantees no concurrent re-arm from other
+contexts), so a suspended flag is set before the delete and checked in
+the callback before its mod_timer(). timer_setup() runs unconditionally in
+probe(), so the delete is safe even on boards without tach inputs, and
+IRQs are only touched when actually requested (tach->irq > 0), mirroring
+probe().
+
+The quiesce is scoped to the SM8550/SM8750 machines where it was
+measured and soak-validated (of_machine_is_compatible check); every
+other platform keeps the stock suspend behavior.
+
+Signed-off-by: drewano <drewano@users.noreply.github.com>
+---
+index 37f3781..5fd7dbb 100644
+--- a/drivers/hwmon/pwm-fan.c
++++ b/drivers/hwmon/pwm-fan.c
+@@ -12,6 +12,7 @@
+ #include <linux/interrupt.h>
+ #include <linux/module.h>
+ #include <linux/mutex.h>
++#include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/property.h>
+ #include <linux/pwm.h>
+@@ -51,6 +52,7 @@ struct pwm_fan_ctx {
+ 	u32 *pulses_per_revolution;
+ 	ktime_t sample_start;
+ 	struct timer_list rpm_timer;
++	bool suspended;
+ 
+ 	unsigned int pwm_value;
+ 	unsigned int pwm_fan_state;
+@@ -76,6 +78,15 @@ static irqreturn_t pulse_handler(int irq, void *dev_id)
+ 	return IRQ_HANDLED;
+ }
+ 
++/* Quiesce only on the SM8550/SM8750 handhelds where the 1 Hz tick and tach
++ * storm were measured and soak-validated; other platforms keep stock behavior.
++ */
++static bool pwm_fan_quiesce_across_suspend(void)
++{
++	return of_machine_is_compatible("qcom,sm8550") ||
++	       of_machine_is_compatible("qcom,sm8750");
++}
++
+ static void sample_timer(struct timer_list *t)
+ {
+ 	struct pwm_fan_ctx *ctx = timer_container_of(ctx, t, rpm_timer);
+@@ -96,6 +107,12 @@ static void sample_timer(struct timer_list *t)
+ 		ctx->sample_start = ktime_get();
+ 	}
+ 
++	/* Suspend owns the timer: do not re-arm once quiesced, or the 1 Hz
++	 * tick would ride through system sleep and defeat pwm_fan_suspend().
++	 */
++	if (READ_ONCE(ctx->suspended))
++		return;
++
+ 	mod_timer(&ctx->rpm_timer, jiffies + HZ);
+ }
+ 
+@@ -710,6 +727,21 @@ static void pwm_fan_shutdown(struct platform_device *pdev)
+ static int pwm_fan_suspend(struct device *dev)
+ {
+ 	struct pwm_fan_ctx *ctx = dev_get_drvdata(dev);
++	int i;
++
++	if (pwm_fan_quiesce_across_suspend()) {
++		/* Flag first: a callback already running must skip its own
++		 * re-arm; timer_delete_sync() then waits it out and drops any
++		 * queued instance.
++		 */
++		WRITE_ONCE(ctx->suspended, true);
++		timer_delete_sync(&ctx->rpm_timer);
++
++		for (i = 0; i < ctx->tach_count; i++) {
++			if (ctx->tachs[i].irq > 0)
++				disable_irq(ctx->tachs[i].irq);
++		}
++	}
+ 
+ 	return pwm_fan_power_off(ctx, true);
+ }
+@@ -717,6 +749,23 @@ static int pwm_fan_suspend(struct device *dev)
+ static int pwm_fan_resume(struct device *dev)
+ {
+ 	struct pwm_fan_ctx *ctx = dev_get_drvdata(dev);
++	int i;
++
++	if (pwm_fan_quiesce_across_suspend()) {
++		for (i = 0; i < ctx->tach_count; i++) {
++			if (ctx->tachs[i].irq > 0) {
++				atomic_set(&ctx->tachs[i].pulses, 0);
++				enable_irq(ctx->tachs[i].irq);
++			}
++		}
++
++		WRITE_ONCE(ctx->suspended, false);
++
++		if (ctx->tach_count > 0) {
++			ctx->sample_start = ktime_get();
++			mod_timer(&ctx->rpm_timer, jiffies + HZ);
++		}
++	}
+ 
+ 	return set_pwm(ctx, ctx->pwm_value);
+ }
