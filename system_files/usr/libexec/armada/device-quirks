@@ -71,6 +71,23 @@ if [[ "${ARMADA_SUSPEND_MODE:-fake}" == "s2idle" ]]; then
     fi
 fi
 
+# cpuidle governor is opt-in (sleep.conf: cpuidle_governor=...). The kernel
+# default stays menu until a governor has been A/B validated on hardware;
+# an unknown or unavailable name keeps the default rather than failing boot.
+cpuidle_dir=${ARMADA_CPUIDLE_DIR:-/sys/devices/system/cpu/cpuidle}
+if [[ -n "${ARMADA_CPUIDLE_GOVERNOR:-}" ]]; then
+    if [[ -w "$cpuidle_dir/current_governor" ]] &&
+        grep -qw "${ARMADA_CPUIDLE_GOVERNOR}" "$cpuidle_dir/available_governors"; then
+        if ! echo "${ARMADA_CPUIDLE_GOVERNOR}" >"$cpuidle_dir/current_governor"; then
+            echo "device-quirks: failed to elect cpuidle governor ${ARMADA_CPUIDLE_GOVERNOR}" >&2
+        else
+            echo "device-quirks: cpuidle governor elected: ${ARMADA_CPUIDLE_GOVERNOR}"
+        fi
+    else
+        echo "device-quirks: cpuidle governor ${ARMADA_CPUIDLE_GOVERNOR} unavailable, keeping default" >&2
+    fi
+fi
+
 # fake-suspend keeps wifi associated; real suspend needs NM to drop and reconnect.
 if [[ "${ARMADA_SUSPEND_MODE:-fake}" != "fake" ]]; then
     if ! rm -f "$nm_ignore_sleep"; then

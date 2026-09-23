@@ -23,7 +23,7 @@ diff --git a/drivers/cpuidle/Kconfig b/drivers/cpuidle/Kconfig
 +config CPU_IDLE_GOV_QCOM_LPM
 +	bool "Qualcomm LPM idle governor"
 +	depends on ARCH_QCOM || COMPILE_TEST
-+	default y
++	default n
 +	help
 +	  Low Power Mode governors tailored for Qualcomm multi-cluster SoCs.
 +	  Includes both qcom-simple-lpm and qcom-lpm governors.
