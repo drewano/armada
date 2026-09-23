@@ -322,7 +322,7 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0560-regulator-qcom-rpmh-add-suspend-state-support.patch`
   source: ROCKNIX PR 2954 / 3126 (Luke Johnson)
   upstream: in review
-  notes: Implements regulator-state-mem in qcom-rpmh regulator driver, allowing regulators (like bob2 gamepad rail) to be powered down during system suspend.
+  notes: Implements regulator-state-mem in qcom-rpmh regulator driver, allowing regulators to be powered down during system suspend. Armed on qcs8550-ayn by the dts delta: vreg_bob2 off-in-suspend, vreg_l15b_1p8 on-in-suspend in LPM. The ops only fire for rails whose DT carries regulator-state-mem.
 - `patches/0561-regulator-core-apply-mem-state-for-s2idle.patch`
   source: ROCKNIX PR 2954 / 3126 (Luke Johnson)
   upstream: in review
