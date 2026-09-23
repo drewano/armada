@@ -673,7 +673,7 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   notes: Armada keeps the AYA Space, Menu, LC, and RC auxiliary keys from waking the system.
 - `dts/qcs8550-ayn-common.dtsi.patch`
   source: armada
-  notes: Armada keeps volume-up from waking the system, removes the SDHCI capability mask, and marks the shared RSInput node as connected to the PM8550B haptics device declared in the same common tree. This intentionally covers the AYN and Retroid products that inherit both nodes, including Pocket 6 and Nova.
+  notes: Armada keeps volume-up from waking the system, removes the SDHCI capability mask, marks the shared RSInput node as connected to the PM8550B haptics device declared in the same common tree, fixes the PCIe WAKE# polarity, and arms the rpmh sleep-vote rails for the deep-suspend stack (vreg_bob2 off-in-suspend, vreg_l15b_1p8 on-in-suspend in LPM — the DT side that activates the 0560/0561 kernel patches). This intentionally covers the AYN and Retroid products that inherit both nodes, including Pocket 6 and Nova.
 - `dts/qcs8550-ayn-odin2portal.dts.patch`
   source: armada
   notes: Adds the back buttons from the Odin 2 DTS into the Odin 2 Portal DTS
