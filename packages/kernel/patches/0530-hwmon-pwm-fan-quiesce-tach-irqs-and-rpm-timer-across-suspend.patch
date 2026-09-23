@@ -25,10 +25,22 @@ probe(), so the delete is safe even on boards without tach inputs, and
 IRQs are only touched when actually requested (tach->irq > 0), mirroring
 probe().
 
-index 37f3781..afc1496 100644
+The quiesce is scoped to the SM8550/SM8750 machines where it was
+measured and soak-validated (of_machine_is_compatible check); every
+other platform keeps the stock suspend behavior.
+
+index 37f3781..5fd7dbb 100644
 --- a/drivers/hwmon/pwm-fan.c
 +++ b/drivers/hwmon/pwm-fan.c
-@@ -51,6 +51,7 @@ struct pwm_fan_ctx {
+@@ -12,6 +12,7 @@
+ #include <linux/interrupt.h>
+ #include <linux/module.h>
+ #include <linux/mutex.h>
++#include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/property.h>
+ #include <linux/pwm.h>
+@@ -51,6 +52,7 @@ struct pwm_fan_ctx {
  	u32 *pulses_per_revolution;
  	ktime_t sample_start;
  	struct timer_list rpm_timer;
@@ -36,7 +48,23 @@ index 37f3781..afc1496 100644
  
  	unsigned int pwm_value;
  	unsigned int pwm_fan_state;
-@@ -96,6 +97,12 @@ static void sample_timer(struct timer_list *t)
+@@ -76,6 +78,15 @@ static irqreturn_t pulse_handler(int irq, void *dev_id)
+ 	return IRQ_HANDLED;
+ }
+ 
++/* Quiesce only on the SM8550/SM8750 handhelds where the 1 Hz tick and tach
++ * storm were measured and soak-validated; other platforms keep stock behavior.
++ */
++static bool pwm_fan_quiesce_across_suspend(void)
++{
++	return of_machine_is_compatible("qcom,sm8550") ||
++	       of_machine_is_compatible("qcom,sm8750");
++}
++
+ static void sample_timer(struct timer_list *t)
+ {
+ 	struct pwm_fan_ctx *ctx = timer_container_of(ctx, t, rpm_timer);
+@@ -96,6 +107,12 @@ static void sample_timer(struct timer_list *t)
  		ctx->sample_start = ktime_get();
  	}
  
@@ -49,43 +77,48 @@ index 37f3781..afc1496 100644
  	mod_timer(&ctx->rpm_timer, jiffies + HZ);
  }
  
-@@ -710,6 +717,18 @@ static void pwm_fan_shutdown(struct platform_device *pdev)
+@@ -710,6 +727,21 @@ static void pwm_fan_shutdown(struct platform_device *pdev)
  static int pwm_fan_suspend(struct device *dev)
  {
  	struct pwm_fan_ctx *ctx = dev_get_drvdata(dev);
 +	int i;
 +
-+	/* Flag first: a callback already running must skip its own re-arm;
-+	 * timer_delete_sync() then waits it out and drops any queued instance.
-+	 */
-+	WRITE_ONCE(ctx->suspended, true);
-+	timer_delete_sync(&ctx->rpm_timer);
++	if (pwm_fan_quiesce_across_suspend()) {
++		/* Flag first: a callback already running must skip its own
++		 * re-arm; timer_delete_sync() then waits it out and drops any
++		 * queued instance.
++		 */
++		WRITE_ONCE(ctx->suspended, true);
++		timer_delete_sync(&ctx->rpm_timer);
 +
-+	for (i = 0; i < ctx->tach_count; i++) {
-+		if (ctx->tachs[i].irq > 0)
-+			disable_irq(ctx->tachs[i].irq);
++		for (i = 0; i < ctx->tach_count; i++) {
++			if (ctx->tachs[i].irq > 0)
++				disable_irq(ctx->tachs[i].irq);
++		}
 +	}
  
  	return pwm_fan_power_off(ctx, true);
  }
-@@ -717,6 +736,21 @@ static int pwm_fan_suspend(struct device *dev)
+@@ -717,6 +749,23 @@ static int pwm_fan_suspend(struct device *dev)
  static int pwm_fan_resume(struct device *dev)
  {
  	struct pwm_fan_ctx *ctx = dev_get_drvdata(dev);
 +	int i;
 +
-+	for (i = 0; i < ctx->tach_count; i++) {
-+		if (ctx->tachs[i].irq > 0) {
-+			atomic_set(&ctx->tachs[i].pulses, 0);
-+			enable_irq(ctx->tachs[i].irq);
++	if (pwm_fan_quiesce_across_suspend()) {
++		for (i = 0; i < ctx->tach_count; i++) {
++			if (ctx->tachs[i].irq > 0) {
++				atomic_set(&ctx->tachs[i].pulses, 0);
++				enable_irq(ctx->tachs[i].irq);
++			}
 +		}
-+	}
 +
-+	WRITE_ONCE(ctx->suspended, false);
++		WRITE_ONCE(ctx->suspended, false);
 +
-+	if (ctx->tach_count > 0) {
-+		ctx->sample_start = ktime_get();
-+		mod_timer(&ctx->rpm_timer, jiffies + HZ);
++		if (ctx->tach_count > 0) {
++			ctx->sample_start = ktime_get();
++			mod_timer(&ctx->rpm_timer, jiffies + HZ);
++		}
 +	}
  
  	return set_pwm(ctx, ctx->pwm_value);
