@@ -1,6 +1,16 @@
 From: Armada <noreply@armada.local>
-Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn: enable SDHCI capabilities and rumble, fix PCIe WAKE# polarity
+Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn: SDHCI caps, rumble, PCIe WAKE polarity, rpmh sleep-vote rails
 
+Arm rpmh regulator-state-mem for the deep-suspend stack: vreg_bob2 off in
+suspend (gamepad/RGB rail), vreg_l15b_1p8 on in LPM (UFS/PHY IO rail).
+The 0560/0561 kernel patches only act on rails whose DT carries
+regulator-state-mem, so these nodes are what arms the SLEEP/WAKE TCS
+votes. The vdd_mcu_3v3 fixed-regulator state-mem hunk from the first
+port is dropped: fixed_voltage_ops has no suspend ops in mainline, so it
+was a silent no-op (the real MCU quiesce is the rsinput suspend patch).
+
+diff --git a/arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi b/arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi
+index 156dff3..6462b12 100644
 --- a/arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi
 +++ b/arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi
 @@ -51,7 +51,6 @@
@@ -11,21 +21,30 @@ Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn: enable SDHCI capabilities and ru
  		};
  	};
  
-@@ -467,9 +466,12 @@
- 		startup-delay-us = <10000>;
- 
- 		gpio = <&tlmm 99 GPIO_ACTIVE_HIGH>;
--		regulator-always-on;
- 		regulator-boot-on;
- 		enable-active-high;
+@@ -598,6 +597,10 @@
+ 			regulator-min-microvolt = <2720000>;
+ 			regulator-max-microvolt = <3960000>;
+ 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 +
-+		regulator-state-mem {
-+			regulator-off-in-suspend;
-+		};
- 	};
++			regulator-state-mem {
++				regulator-off-in-suspend;
++			};
+ 		};
  
- 	vph_pwr: regulator-vph-pwr {
-@@ -1096,7 +1098,7 @@
+ 		vreg_l2b_3p0: ldo2 {
+@@ -705,6 +708,11 @@
+ 			regulator-allow-set-load;
+ 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
+ 						   RPMH_REGULATOR_MODE_HPM>;
++
++			regulator-state-mem {
++				regulator-on-in-suspend;
++				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++			};
+ 		};
+ 
+ 		vreg_l16b_2p8: ldo16 {
+@@ -1096,7 +1104,7 @@
  };
  
  &pcieport0 {
@@ -34,7 +53,7 @@ Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn: enable SDHCI capabilities and ru
  	reset-gpios = <&tlmm 94 GPIO_ACTIVE_LOW>;
  
  	wifi@0 {
-@@ -1462,7 +1462,6 @@
+@@ -1462,7 +1470,6 @@
  	no-mmc;
  
  	qcom,dll-config = <0x0007442c>;
@@ -42,7 +61,7 @@ Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn: enable SDHCI capabilities and ru
  
  	status = "okay";
  };
-@@ -1700,6 +1699,7 @@
+@@ -1700,6 +1707,7 @@
  
  	gamepad: gamepad {
  		compatible = "gamepad,rsinput";
