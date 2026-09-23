@@ -76,8 +76,14 @@ fi
 # an unknown or unavailable name keeps the default rather than failing boot.
 cpuidle_dir=${ARMADA_CPUIDLE_DIR:-/sys/devices/system/cpu/cpuidle}
 if [[ -n "${ARMADA_CPUIDLE_GOVERNOR:-}" ]]; then
+    cpuidle_available=
+    if [[ -r "$cpuidle_dir/available_governors" ]]; then
+        cpuidle_available=$(<"$cpuidle_dir/available_governors")
+    fi
+    # Exact-token match: governor names contain hyphens, which grep -w would
+    # treat as word boundaries (a bogus "lpm" would match "qcom-lpm").
     if [[ -w "$cpuidle_dir/current_governor" ]] &&
-        grep -qw "${ARMADA_CPUIDLE_GOVERNOR}" "$cpuidle_dir/available_governors"; then
+        [[ " ${cpuidle_available//$'\n'/ } " == *" ${ARMADA_CPUIDLE_GOVERNOR} "* ]]; then
         if ! echo "${ARMADA_CPUIDLE_GOVERNOR}" >"$cpuidle_dir/current_governor"; then
             echo "device-quirks: failed to elect cpuidle governor ${ARMADA_CPUIDLE_GOVERNOR}" >&2
         else

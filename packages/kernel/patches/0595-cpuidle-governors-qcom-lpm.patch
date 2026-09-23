@@ -4,7 +4,8 @@ Subject: [PATCH] cpuidle: governors: port Qualcomm LPM vendor governors (simple 
 Port Qualcomm Low Power Mode (LPM) idle governors from vendor BSP (SM8550/SM8750)
 to mainline Linux 7.2. Includes:
 - qcom-simple-lpm: lightweight governor scaling target residency and latency
-  by configurable dividers, eliminating WFI retention on CPU0 under handheld workloads.
+  by configurable dividers, targeting WFI retention on CPU0 under handheld
+  workloads.
 - qcom-lpm: predictive governor tracking CPU residency history, IPI patterns,
   and premature wakeup timers.
 - qcom-cluster-lpm & simple-cluster-lpm: coordinating cluster-level power collapse
