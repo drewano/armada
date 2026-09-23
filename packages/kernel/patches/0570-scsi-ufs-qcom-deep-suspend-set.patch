@@ -11,8 +11,9 @@ The in-repo variant does not fold the upstream 0511 (re-enable IRQ on
 host-reset failure), which stays a separate series entry; the remaining
 archived pieces live in 0571/0572/0573.
 
-Signed-off-by: drewano <drewano@users.noreply.github.com>
 
+Signed-off-by: drewano <drewano@users.noreply.github.com>
+---
 diff --git a/drivers/phy/qualcomm/phy-qcom-qmp-ufs.c b/drivers/phy/qualcomm/phy-qcom-qmp-ufs.c
 index 0f4ad24..6aad4d9 100644
 --- a/drivers/phy/qualcomm/phy-qcom-qmp-ufs.c

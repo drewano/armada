@@ -7,8 +7,9 @@ attempt), so it is left non-wakeup on qcom,sm8550; the critical
 threshold stays armed. Our 0204 already masks the low thresholds during
 suspend.
 
-Signed-off-by: drewano <drewano@users.noreply.github.com>
 
+Signed-off-by: drewano <drewano@users.noreply.github.com>
+---
 diff --git a/drivers/thermal/qcom/tsens.c b/drivers/thermal/qcom/tsens.c
 index 51f20ef..6df6420 100644
 --- a/drivers/thermal/qcom/tsens.c

@@ -5,8 +5,8 @@ On SM8550 the default suspend mode is s2idle, which converges on the same
 RPMh RSC sleep/wake handoff as deep suspend. Map PM_SUSPEND_TO_IDLE to the
 regulator-state-mem constraints so suspend sleep votes apply on the default
 path (upstream has no TO_IDLE devicetree binding).
----
 Signed-off-by: drewano <drewano@users.noreply.github.com>
+---
 --- a/drivers/regulator/core.c
 +++ b/drivers/regulator/core.c
 @@ -465,7 +465,7 @@

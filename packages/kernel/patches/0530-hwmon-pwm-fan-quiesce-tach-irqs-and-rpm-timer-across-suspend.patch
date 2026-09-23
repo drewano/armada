@@ -29,8 +29,9 @@ The quiesce is scoped to the SM8550/SM8750 machines where it was
 measured and soak-validated (of_machine_is_compatible check); every
 other platform keeps the stock suspend behavior.
 
-index 37f3781..5fd7dbb 100644
 Signed-off-by: drewano <drewano@users.noreply.github.com>
+---
+index 37f3781..5fd7dbb 100644
 --- a/drivers/hwmon/pwm-fan.c
 +++ b/drivers/hwmon/pwm-fan.c
 @@ -12,6 +12,7 @@
