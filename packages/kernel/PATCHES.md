@@ -310,7 +310,7 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0521-mmc-sdhci-msm-mask-controller-irqs-while-runtime-suspended.patch`
   source: armada
   upstream: not submitted
-  notes: Masks sdhci-msm controller IRQs while runtime suspended to stop the mmc0 IRQ storm during s2idle on SM8550.
+  notes: Masks sdhci-msm controller IRQs while runtime suspended to stop the mmc0 IRQ storm during s2idle. Scoped to qcom,sm8550/qcom,sm8750 machines (of_machine_is_compatible); other platforms keep stock behavior.
 - `patches/0522-usb-dwc3-qcom-skip-phy-management-by-usb-core.patch`
   source: lore.kernel.org/all/20260723-dwc3-skip-init-quirk-v1-1-97682bb44ebd@oss.qualcomm.com
   upstream: in review
@@ -318,7 +318,7 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0530-hwmon-pwm-fan-quiesce-tach-irqs-and-rpm-timer-across-suspend.patch`
   source: armada
   upstream: not submitted
-  notes: Quiesces pwm-fan tachometer interrupts and the 1 Hz polling timer across suspend to eliminate background wakeups.
+  notes: Quiesces pwm-fan tachometer interrupts and the 1 Hz polling timer across suspend (self-rearm guard included) to eliminate background wakeups. Scoped to qcom,sm8550/qcom,sm8750 machines; other platforms keep stock behavior.
 - `patches/0560-regulator-qcom-rpmh-add-suspend-state-support.patch`
   source: ROCKNIX PR 2954 / 3126 (Luke Johnson)
   upstream: in review
@@ -326,11 +326,11 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0561-regulator-core-apply-mem-state-for-s2idle.patch`
   source: ROCKNIX PR 2954 / 3126 (Luke Johnson)
   upstream: in review
-  notes: Applies regulator-state-mem constraints to s2idle (PM_SUSPEND_TO_IDLE) on platforms without separate suspend-to-idle DT bindings.
+  notes: Applies regulator-state-mem constraints to s2idle (PM_SUSPEND_TO_IDLE) on platforms without separate suspend-to-idle DT bindings. Effectively scoped by DT: the ops only fire for rails carrying regulator-state-mem, and in this tree the only such rpmh rails are the qcs8550-ayn bob2/l15b nodes; every other in-tree state-mem sits on fixed regulators where the empty fixed_voltage_ops make it inert.
 - `patches/0570-scsi-ufs-qcom-deep-suspend-set.patch`
   source: ROCKNIX PR 3126 (jaewun, gh123man)
   upstream: in review
-  notes: Folded UFS deep suspend set (phy linecfg around link startup, HW auto-hibern8 disabled when SW clk-gating owns hibern8 parking, hibern8-exit failure propagated from clk scaling). The remaining pieces of the archived stack live in 0571/0572/0573. The archived drain-relink OOB PM poller (ex-0201) is intentionally not restored: Linux 7.2 switched ufshcd_intr to a plain hard IRQ handler, removing the async completion window it drained.
+  notes: Folded UFS deep suspend set (phy linecfg around link startup, HW auto-hibern8 disabled when SW clk-gating owns hibern8 parking, hibern8-exit failure propagated from clk scaling). The auto-hibern8 quirk is scoped to the qcom,sm8550-ufshc compatible. The remaining pieces of the archived stack live in 0571/0572/0573. The archived drain-relink OOB PM poller (ex-0201) is intentionally not restored: Linux 7.2 switched ufshcd_intr to a plain hard IRQ handler, removing the async completion window it drained.
 - `patches/0571-scsi-ufs-qcom-keep-mphy-powered-on-hibern8-park.patch`
   source: armada-packages sm8550-sleep / ROCKNIX PR 3126 (jaewun)
   upstream: in review
