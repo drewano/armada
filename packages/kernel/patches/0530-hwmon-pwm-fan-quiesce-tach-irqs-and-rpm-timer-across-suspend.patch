@@ -1,4 +1,4 @@
-From: Armada <noreply@armada.local>
+From: drewano <drewano@users.noreply.github.com>
 Subject: [PATCH] hwmon: (pwm-fan) quiesce tach IRQs and RPM timer across suspend
 
 pwm_fan_suspend() only powers the PWM off. The tachometer IRQs requested
@@ -29,6 +29,8 @@ The quiesce is scoped to the SM8550/SM8750 machines where it was
 measured and soak-validated (of_machine_is_compatible check); every
 other platform keeps the stock suspend behavior.
 
+Signed-off-by: drewano <drewano@users.noreply.github.com>
+---
 index 37f3781..5fd7dbb 100644
 --- a/drivers/hwmon/pwm-fan.c
 +++ b/drivers/hwmon/pwm-fan.c
