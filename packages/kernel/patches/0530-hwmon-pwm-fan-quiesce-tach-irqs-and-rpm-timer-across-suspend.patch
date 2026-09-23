@@ -16,21 +16,49 @@ across system sleep:
    timers do not show up in /proc/interrupts.
 
 Delete the sampling timer and disable the tach IRQs on suspend; re-arm
-them on resume before restoring the PWM. timer_setup() runs
-unconditionally in probe(), so timer_delete_sync() is safe even on
-boards without tach inputs, and irqs are only touched when actually
-requested (tach->irq > 0), mirroring probe().
----
-diff --git a/drivers/hwmon/pwm-fan.c b/drivers/hwmon/pwm-fan.c
-index 37f3781..2ea7395 100644
+them on resume before restoring the PWM. sample_timer() re-arms itself
+from its own callback, which timer_delete_sync() alone does not protect
+against (the timer core only guarantees no concurrent re-arm from other
+contexts), so a suspended flag is set before the delete and checked in
+the callback before its mod_timer(). timer_setup() runs unconditionally in
+probe(), so the delete is safe even on boards without tach inputs, and
+IRQs are only touched when actually requested (tach->irq > 0), mirroring
+probe().
+
+index 37f3781..afc1496 100644
 --- a/drivers/hwmon/pwm-fan.c
 +++ b/drivers/hwmon/pwm-fan.c
-@@ -710,6 +710,14 @@ static void pwm_fan_shutdown(struct platform_device *pdev)
+@@ -51,6 +51,7 @@ struct pwm_fan_ctx {
+ 	u32 *pulses_per_revolution;
+ 	ktime_t sample_start;
+ 	struct timer_list rpm_timer;
++	bool suspended;
+ 
+ 	unsigned int pwm_value;
+ 	unsigned int pwm_fan_state;
+@@ -96,6 +97,12 @@ static void sample_timer(struct timer_list *t)
+ 		ctx->sample_start = ktime_get();
+ 	}
+ 
++	/* Suspend owns the timer: do not re-arm once quiesced, or the 1 Hz
++	 * tick would ride through system sleep and defeat pwm_fan_suspend().
++	 */
++	if (READ_ONCE(ctx->suspended))
++		return;
++
+ 	mod_timer(&ctx->rpm_timer, jiffies + HZ);
+ }
+ 
+@@ -710,6 +717,18 @@ static void pwm_fan_shutdown(struct platform_device *pdev)
  static int pwm_fan_suspend(struct device *dev)
  {
  	struct pwm_fan_ctx *ctx = dev_get_drvdata(dev);
 +	int i;
 +
++	/* Flag first: a callback already running must skip its own re-arm;
++	 * timer_delete_sync() then waits it out and drops any queued instance.
++	 */
++	WRITE_ONCE(ctx->suspended, true);
 +	timer_delete_sync(&ctx->rpm_timer);
 +
 +	for (i = 0; i < ctx->tach_count; i++) {
@@ -40,7 +68,7 @@ index 37f3781..2ea7395 100644
  
  	return pwm_fan_power_off(ctx, true);
  }
-@@ -717,6 +725,19 @@ static int pwm_fan_suspend(struct device *dev)
+@@ -717,6 +736,21 @@ static int pwm_fan_suspend(struct device *dev)
  static int pwm_fan_resume(struct device *dev)
  {
  	struct pwm_fan_ctx *ctx = dev_get_drvdata(dev);
@@ -52,6 +80,8 @@ index 37f3781..2ea7395 100644
 +			enable_irq(ctx->tachs[i].irq);
 +		}
 +	}
++
++	WRITE_ONCE(ctx->suspended, false);
 +
 +	if (ctx->tach_count > 0) {
 +		ctx->sample_start = ktime_get();
