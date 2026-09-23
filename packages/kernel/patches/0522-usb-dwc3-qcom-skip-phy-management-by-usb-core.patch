@@ -1,0 +1,64 @@
+From d90fb648965d84287c830a389cc7c0981d3ecc3a Mon Sep 17 00:00:00 2001
+From: Krishna Kurapati <krishna.kurapati@oss.qualcomm.com>
+Date: Thu, 23 Jul 2026 16:24:56 +0530
+Subject: [PATCH] FROMLIST: usb: dwc3: qcom: Add support to skip phy management
+ by USB core
+
+DWC3 driver does manage phys itself sufficiently for Qualcomm platforms.
+If xhci-skip-phy-init is not set, the HCD core does a phy_init and phy_
+exit is done only when roothub is being destroyed. Due to this, during
+system suspend in host mode, although phy_exit is done by DWC3 core, the
+init_count on phy is never down to zero since HCD core also did an init.
+consequently causing phy's exit routine to not be called. Hence, add
+support to skip phy management by USB core.
+
+Some Exynos platforms still do rely on USB core for phy_calibrate calls,
+hence disable USB core management for Qualcomm platforms only.
+
+Signed-off-by: Krishna Kurapati <krishna.kurapati@oss.qualcomm.com>
+Acked-by: Thinh Nguyen <Thinh.Nguyen@synopsys.com>
+Link: https://lore.kernel.org/all/20260723-dwc3-skip-init-quirk-v1-1-97682bb44ebd@oss.qualcomm.com/
+---
+ drivers/usb/dwc3/dwc3-qcom.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/drivers/usb/dwc3/dwc3-qcom.c b/drivers/usb/dwc3/dwc3-qcom.c
+index 3b025d4beeaeb..be3603e518c1e 100644
+--- a/drivers/usb/dwc3/dwc3-qcom.c
++++ b/drivers/usb/dwc3/dwc3-qcom.c
+@@ -19,6 +19,7 @@
+ #include <linux/iopoll.h>
+ #include <linux/usb/hcd.h>
+ #include <linux/usb.h>
++#include <linux/property.h>
+ #include "core.h"
+ #include "glue.h"
+ 
+@@ -442,6 +443,16 @@ static irqreturn_t qcom_dwc3_resume_irq(int irq, void *data)
+ 	return IRQ_HANDLED;
+ }
+ 
++static int dwc3_qcom_set_swnode(struct device *dev)
++{
++	const struct property_entry props[] = {
++		PROPERTY_ENTRY_BOOL("xhci-skip-phy-init-quirk"),
++		{}
++	};
++
++	return device_create_managed_software_node(dev, props, NULL);
++}
++
+ static void dwc3_qcom_select_utmi_clk(struct dwc3_qcom *qcom)
+ {
+ 	/* Configure dwc3 to use UTMI clock as PIPE clock not present */
+@@ -711,6 +722,10 @@ static int dwc3_qcom_probe(struct platform_device *pdev)
+ 	if (ignore_pipe_clk)
+ 		dwc3_qcom_select_utmi_clk(qcom);
+ 
++	ret = dwc3_qcom_set_swnode(dev);
++	if (ret)
++		goto clk_disable;
++
+ 	qcom->mode = usb_get_dr_mode(dev);
+ 
+ 	if (qcom->mode == USB_DR_MODE_HOST) {

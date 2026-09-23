@@ -1,0 +1,78 @@
+From 1567af39575edab457410545c45e97f6425e8631 Mon Sep 17 00:00:00 2001
+From: drewano <drewano@users.noreply.github.com>
+Date: Fri, 21 Aug 2026 01:32:44 +0200
+Subject: [PATCH] mmc: sdhci-msm: mask controller IRQs while runtime suspended
+
+The SDCC apps clock on Qualcomm platforms is a shared RCG which gets
+parked on an always-on safe source (bi_tcxo) by clk_rcg2_shared_disable()
+instead of being gated, so the SDHCI controller remains powered and
+clocked while the host is runtime suspended.
+
+On AYN Odin 2 (SM8550, 8804000.sdhci, rootfs on SD), the controller
+keeps signalling status events in that state. sdhci_irq() returns
+IRQ_NONE early once host->runtime_suspended is set, so nothing ever acks
+or masks the source and the GIC keeps dispatching the level IRQ:
+measured bursts of 15-50 irq/s on CPU0 whenever the host is runtime
+suspended (ftrace shows one sdhci_irq() call per counted IRQ), with
+zero mmc errors and no mmc traffic. Each dispatch pokes CPU0 out of
+deep idle and blocks RPMh AOSD/CXSD entry during s2idle
+(armada-os/armada#274).
+
+Mask the normal interrupt enables in runtime_suspend, keeping only
+SDHCI_INT_CARD_INT (SDIO wake) in case it was claimed, and restore them
+from the untouched in-memory host->ier in runtime_resume. Boards using
+a gpio card-detect (like Odin 2) keep hotplug detection; boards relying
+on the controller-internal card detect keep it whenever the host is
+runtime active.
+
+Reference: armada-os/armada#274 (symptom 2), analysis of Pocknix 0210
+(delayed clk-gating work, different SoC family approach).
+---
+ drivers/mmc/host/sdhci-msm.c | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/drivers/mmc/host/sdhci-msm.c b/drivers/mmc/host/sdhci-msm.c
+index 0882ce7..9030643 100644
+--- a/drivers/mmc/host/sdhci-msm.c
++++ b/drivers/mmc/host/sdhci-msm.c
+@@ -2940,8 +2940,28 @@ static int sdhci_msm_runtime_suspend(struct device *dev)
+ 
+ 	spin_lock_irqsave(&host->lock, flags);
+ 	host->runtime_suspended = true;
++	/*
++	 * The SDCC apps clock is a shared RCG that gets parked on an
++	 * always-on safe source (bi_tcxo) at clk_disable() time instead of
++	 * being gated, so the controller stays powered and clocked while
++	 * the host is runtime suspended and keeps signalling status events
++	 * (measured on Odin 2/SM8550: bursts of 15-50 irq/s on CPU0 with
++	 * zero mmc errors whenever the host is suspended, keeping CPU0 out
++	 * of deep idle and RPMh out of AOSD/CXSD - armada#274).
++	 *
++	 * sdhci_irq() bails out early with IRQ_NONE once runtime_suspended
++	 * is set, so nothing acks or masks the source while the line keeps
++	 * asserting. Mask the interrupt enables here, keeping only
++	 * SDHCI_INT_CARD_INT (SDIO wake) in case it was claimed, and
++	 * restore them from host->ier on runtime resume. Hotplug keeps
++	 * working through the external cd-gpio.
++	 */
++	sdhci_writel(host, host->ier & SDHCI_INT_CARD_INT, SDHCI_SIGNAL_ENABLE);
++	sdhci_writel(host, host->ier & SDHCI_INT_CARD_INT, SDHCI_INT_ENABLE);
+ 	spin_unlock_irqrestore(&host->lock, flags);
+ 
++	synchronize_hardirq(host->irq);
++
+ 	/* Drop the performance vote */
+ 	dev_pm_opp_set_rate(dev, 0);
+ 	clk_bulk_disable_unprepare(ARRAY_SIZE(msm_host->bulk_clks),
+@@ -2979,6 +2999,8 @@ static int sdhci_msm_runtime_resume(struct device *dev)
+ 		return ret;
+ 
+ 	spin_lock_irqsave(&host->lock, flags);
++	sdhci_writel(host, host->ier, SDHCI_SIGNAL_ENABLE);
++	sdhci_writel(host, host->ier, SDHCI_INT_ENABLE);
+ 	host->runtime_suspended = false;
+ 	spin_unlock_irqrestore(&host->lock, flags);
+ 
+-- 
+2.50.1 (Apple Git-155)
+
