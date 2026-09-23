@@ -1,4 +1,3 @@
-From 1567af39575edab457410545c45e97f6425e8631 Mon Sep 17 00:00:00 2001
 From: drewano <drewano@users.noreply.github.com>
 Date: Fri, 21 Aug 2026 01:32:44 +0200
 Subject: [PATCH] mmc: sdhci-msm: mask controller IRQs while runtime suspended
@@ -25,18 +24,29 @@ a gpio card-detect (like Odin 2) keep hotplug detection; boards relying
 on the controller-internal card detect keep it whenever the host is
 runtime active.
 
+The masking is scoped to SM8550/SM8750 machines (of_machine_is_
+compatible), the SoC classes where the storm was measured and the
+workaround validated; other Qualcomm platforms keep stock behavior.
+
 Reference: armada-os/armada#274 (symptom 2), analysis of Pocknix 0210
 (delayed clk-gating work, different SoC family approach).
----
- drivers/mmc/host/sdhci-msm.c | 22 ++++++++++++++++++++++
- 1 file changed, 22 insertions(+)
 
-diff --git a/drivers/mmc/host/sdhci-msm.c b/drivers/mmc/host/sdhci-msm.c
-index 0882ce7..9030643 100644
+index 0882ce7..301b2b6 100644
 --- a/drivers/mmc/host/sdhci-msm.c
 +++ b/drivers/mmc/host/sdhci-msm.c
-@@ -2940,8 +2940,28 @@ static int sdhci_msm_runtime_suspend(struct device *dev)
+@@ -2933,15 +2933,44 @@ static void sdhci_msm_remove(struct platform_device *pdev)
  
+ static int sdhci_msm_runtime_suspend(struct device *dev)
+ {
++	bool quiesce_irqs;
+ 	struct sdhci_host *host = dev_get_drvdata(dev);
+ 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+ 	struct sdhci_msm_host *msm_host = sdhci_pltfm_priv(pltfm_host);
+ 	unsigned long flags;
+ 
++	quiesce_irqs = of_machine_is_compatible("qcom,sm8550") ||
++		       of_machine_is_compatible("qcom,sm8750");
++
  	spin_lock_irqsave(&host->lock, flags);
  	host->runtime_suspended = true;
 +	/*
@@ -55,24 +65,40 @@ index 0882ce7..9030643 100644
 +	 * restore them from host->ier on runtime resume. Hotplug keeps
 +	 * working through the external cd-gpio.
 +	 */
-+	sdhci_writel(host, host->ier & SDHCI_INT_CARD_INT, SDHCI_SIGNAL_ENABLE);
-+	sdhci_writel(host, host->ier & SDHCI_INT_CARD_INT, SDHCI_INT_ENABLE);
++	if (quiesce_irqs) {
++		sdhci_writel(host, host->ier & SDHCI_INT_CARD_INT,
++			     SDHCI_SIGNAL_ENABLE);
++		sdhci_writel(host, host->ier & SDHCI_INT_CARD_INT,
++			     SDHCI_INT_ENABLE);
++	}
  	spin_unlock_irqrestore(&host->lock, flags);
  
-+	synchronize_hardirq(host->irq);
++	if (quiesce_irqs)
++		synchronize_hardirq(host->irq);
 +
  	/* Drop the performance vote */
  	dev_pm_opp_set_rate(dev, 0);
  	clk_bulk_disable_unprepare(ARRAY_SIZE(msm_host->bulk_clks),
-@@ -2979,6 +2999,8 @@ static int sdhci_msm_runtime_resume(struct device *dev)
+@@ -2952,6 +2981,7 @@ static int sdhci_msm_runtime_suspend(struct device *dev)
+ 
+ static int sdhci_msm_runtime_resume(struct device *dev)
+ {
++	bool quiesce_irqs;
+ 	struct sdhci_host *host = dev_get_drvdata(dev);
+ 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+ 	struct sdhci_msm_host *msm_host = sdhci_pltfm_priv(pltfm_host);
+@@ -2978,7 +3008,14 @@ static int sdhci_msm_runtime_resume(struct device *dev)
+ 	if (ret)
  		return ret;
  
++	quiesce_irqs = of_machine_is_compatible("qcom,sm8550") ||
++		       of_machine_is_compatible("qcom,sm8750");
++
  	spin_lock_irqsave(&host->lock, flags);
-+	sdhci_writel(host, host->ier, SDHCI_SIGNAL_ENABLE);
-+	sdhci_writel(host, host->ier, SDHCI_INT_ENABLE);
++	if (quiesce_irqs) {
++		sdhci_writel(host, host->ier, SDHCI_SIGNAL_ENABLE);
++		sdhci_writel(host, host->ier, SDHCI_INT_ENABLE);
++	}
  	host->runtime_suspended = false;
  	spin_unlock_irqrestore(&host->lock, flags);
  
--- 
-2.50.1 (Apple Git-155)
-

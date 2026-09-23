@@ -159,7 +159,7 @@ index 291c434..9166fa7 100644
  		ufs_qcom_link_startup_post_change(hba);
  		break;
  	default:
-@@ -1320,6 +1332,18 @@ static void ufs_qcom_advertise_quirks(struct ufs_hba *hba)
+@@ -1320,6 +1332,20 @@ static void ufs_qcom_advertise_quirks(struct ufs_hba *hba)
  
  	if (drvdata && drvdata->quirks)
  		hba->quirks |= drvdata->quirks;
@@ -171,9 +171,11 @@ index 291c434..9166fa7 100644
 +	 * gate_work then issues a redundant SW hibern8-enter on the already-parked
 +	 * link, which can time out waiting for power-mode-change completion.
 +	 * The two mechanisms are mutually exclusive; keep the SW clk-gating
-+	 * path and disable HW auto-hibern8.
++	 * path and disable HW auto-hibern8. Scoped to the SM8550 UFS host
++	 * where the collision was diagnosed and soak-validated.
 +	 */
-+	if (hba->caps & UFSHCD_CAP_HIBERN8_WITH_CLK_GATING)
++	if ((hba->caps & UFSHCD_CAP_HIBERN8_WITH_CLK_GATING) &&
++	    of_device_is_compatible(hba->dev->of_node, "qcom,sm8550-ufshc"))
 +		hba->quirks |= UFSHCD_QUIRK_BROKEN_AUTO_HIBERN8;
  }
  
