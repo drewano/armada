@@ -35,6 +35,11 @@ export interface Tweaks {
   games: Record<string, GameTweak>;
 }
 
+export interface CompatAppliedState {
+  appids: string[];
+  protonDefault: string;
+}
+
 export interface InstalledGame {
   appid: string;
   name: string;
@@ -66,6 +71,13 @@ export interface CalibrationState {
   params?: Record<string, number>;
 }
 
+export interface RgbConfig {
+  version: number;
+  enabled: boolean;
+  brightness: number;
+  color: string;
+}
+
 export interface GameRef {
   appid: string;
   name: string;
@@ -87,9 +99,16 @@ export interface Config {
   fexProfiles: Record<string, FexProfile>;
   perf?: PerfInfo;
   cpuDeviceClass: string;
+  rgbSupported: boolean;
+  protonDefaults: string[];
   osVersion: string;
   ablVersion: string;
   ablAutoEnabled: boolean;
+  bottomScreenSupported: boolean;
+  bottomScreenEnabled: boolean;
+  bottomScreenBrightnessSupported: boolean;
+  bottomScreenActive: boolean;
+  bottomScreenBrightness: number;
   sshEnabled: boolean;
   mtpEnabled: boolean;
   desktopMode: string;
@@ -108,4 +127,28 @@ export type Capture = Record<string, { center: number; min: number; max: number;
 export interface DropdownChoice {
   data: string;
   label: string;
+}
+
+export interface ProfileSummary {
+  label: string;
+  fan_curve: string;
+}
+
+export interface FanSettings {
+  ramp_up: number;
+  ramp_down: number;
+  smoothing: number;
+  min_pwm: number;
+}
+
+export interface CurvesState {
+  fanCurves: Record<string, FanCurve>;
+  factoryFanCurves: Record<string, FanCurve>;
+  fanSettings: FanSettings;
+  factoryFanSettings: FanSettings;
+  profiles: Record<string, ProfileSummary>;
+  // Falls back to the configured default, then any profile, if the daemon state can't be read.
+  activeProfile: string;
+  // Live marker instead polls get_current_temp (see hooks/useCurrentTemp).
+  currentTemp: number | null;
 }

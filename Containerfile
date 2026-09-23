@@ -1,45 +1,85 @@
-ARG FEX_PKG=ghcr.io/armada-os/armada-packages/fex@sha256:7ad92a80e6698245ade709b4f357988dd1520aca25203f7d39659585f2b9948f
-ARG MESA_PKG=ghcr.io/armada-os/armada-packages/mesa@sha256:ae13f3753c69d6a27f61fe9e8fc6e10ea0418b4c51bcbf2e7815241d7e0c9745
-ARG MESA_ANDROID_PKG=ghcr.io/armada-os/armada-packages/mesa-android@sha256:57b03a625ebdfa12d67210c9642f24f8389c22b319e86ab32715eedfd7ee963b
-ARG MESA_X86_PKG=ghcr.io/armada-os/armada-packages/mesa-x86@sha256:17ca26c35250ce0cd6a98bd13b6a21e06ca44f9e51f299fd008b1e79c4cabfc4
-ARG MANGOHUD_PKG=ghcr.io/armada-os/armada-packages/mangohud@sha256:6ed92b44d267a8d2e1339968b59c2679cfd30e81494d4990dcc2c92e0be4fc10
-ARG GAMESCOPE_PKG=ghcr.io/armada-os/armada-packages/gamescope@sha256:0e10f2642a02991004070e75c054dd7acf311e1e0893dedd9b0b541d2d2769db
-ARG GAMESCOPE_SESSION_PKG=ghcr.io/armada-os/armada-packages/gamescope-session@sha256:4ca0165c2b1b10d0b97cea38e6f00e72971397b7762155fa1f21287071748d65
-ARG GAMESCOPE_SESSION_STEAM_PKG=ghcr.io/armada-os/armada-packages/gamescope-session-steam@sha256:fb051bbaf9434f2898a442a1087a38c8ec0c5c542ee42d8b7ac87a4f706e9b37
-ARG KWIN_PKG=ghcr.io/armada-os/armada-packages/kwin@sha256:0f9bfcb4d0da4cab4a049cba7d90eb9936b3d4be610ceb00f25ec0f58d0dc812
-ARG POWERDEVIL_PKG=ghcr.io/armada-os/armada-packages/powerdevil@sha256:f6d25143dca84f5f71076a3c992e06de87f7ae25fd046cfeb21999df989c4f8b
-ARG KERNEL_PKG=ghcr.io/drewano/armada-packages/kernel@sha256:a104915f1ba38fe7d64ea1517445fffee5f46aaa46b0e25203fece5652fe20ab
-ARG INPUTPLUMBER_PKG=ghcr.io/armada-os/armada-packages/inputplumber@sha256:6196556fe04882547f16302763e3556b434e37e007b6f260d5f2e3f95fd43dea
-ARG EXTEST_PKG=ghcr.io/armada-os/armada-packages/extest@sha256:c68bd452dd8f9a20527862e87fd446045b86811dc222a2a1744ede8d8b858dfa
-ARG NETWORKMANAGER_PKG=ghcr.io/armada-os/armada-packages/networkmanager@sha256:043eae7f6f236945bc66466337391384949f56ad19807f21fe2e9b6f5c488b5f
-ARG JUPITER_HW_SUPPORT_PKG=ghcr.io/armada-os/armada-packages/jupiter-hw-support@sha256:9bb3b94ced508eccb11ae4ed98b00657c202bf78ad797bf6ece345d1ec19b552
-ARG ARMADA_SPLASH_PKG=ghcr.io/armada-os/armada-packages/armada-splash@sha256:6b018ab61218ad5b760fc93b27f7f6af4af4fb6301cb1ed4711cd33ded8c0ea0
-ARG UMTP_RESPONDER_PKG=ghcr.io/armada-os/armada-packages/umtp-responder@sha256:b0fe59bf87bccdde7273d7ade9f824171a5b4ac5f132b4670b32a73bb1f871b3
+ARG CHUNKAH_IMAGE=quay.io/coreos/chunkah@sha256:ff8b8b466a942ec6000445d4001fc661e2fc5a952ad9ee29b4de9ab09d1d1708
+ARG BASE_IMAGE=quay.io/fedora/fedora-bootc:44
 
-FROM ${FEX_PKG} AS fex
-FROM ${MESA_PKG} AS mesa
-FROM ${MANGOHUD_PKG} AS mangohud
-FROM ${GAMESCOPE_PKG} AS gamescope
-FROM ${GAMESCOPE_SESSION_PKG} AS gamescope-session
-FROM ${GAMESCOPE_SESSION_STEAM_PKG} AS gamescope-session-steam
-FROM ${KWIN_PKG} AS kwin
-FROM ${POWERDEVIL_PKG} AS powerdevil
-FROM ${KERNEL_PKG} AS kernel
-FROM ${INPUTPLUMBER_PKG} AS inputplumber
-FROM ${NETWORKMANAGER_PKG} AS networkmanager
-FROM ${JUPITER_HW_SUPPORT_PKG} AS jupiter-hw-support
-FROM ${MESA_ANDROID_PKG} AS mesa-android
-FROM ${MESA_X86_PKG} AS mesa-x86
-FROM ${EXTEST_PKG} AS extest
-FROM ${ARMADA_SPLASH_PKG} AS armada-splash
-FROM ${UMTP_RESPONDER_PKG} AS umtp-responder
+# Package images, resolved by content hash. The Packages workflow publishes each
+# as ghcr.io/<owner>/armada/pkg/<name>:<tag>, tagged by packages/package-hash.sh
+# from that package's sources, and passes the refs in as build args.
+
+ARG STEAM_BOOTSTRAP_REF
+FROM ${STEAM_BOOTSTRAP_REF} AS steam-bootstrap
+
+ARG FEX_REF
+FROM ${FEX_REF} AS fex
+
+ARG MESA_REF
+FROM ${MESA_REF} AS mesa
+
+ARG MANGOHUD_REF
+FROM ${MANGOHUD_REF} AS mangohud
+
+ARG GAMESCOPE_REF
+FROM ${GAMESCOPE_REF} AS gamescope
+
+ARG GAMESCOPE_SESSION_REF
+FROM ${GAMESCOPE_SESSION_REF} AS gamescope-session
+
+ARG GAMESCOPE_SESSION_STEAM_REF
+FROM ${GAMESCOPE_SESSION_STEAM_REF} AS gamescope-session-steam
+
+ARG KWIN_REF
+FROM ${KWIN_REF} AS kwin
+
+ARG PLASMA_MOBILE_REF
+FROM ${PLASMA_MOBILE_REF} AS plasma-mobile
+
+ARG POWERDEVIL_REF
+FROM ${POWERDEVIL_REF} AS powerdevil
+
+ARG PROTONTRICKS_REF
+FROM ${PROTONTRICKS_REF} AS protontricks
+
+ARG KERNEL_REF
+FROM ${KERNEL_REF} AS kernel
+
+ARG INPUTPLUMBER_REF
+FROM ${INPUTPLUMBER_REF} AS inputplumber
+
+ARG STEAMOS_MANAGER_REF
+FROM ${STEAMOS_MANAGER_REF} AS steamos-manager
+
+ARG NETWORKMANAGER_REF
+FROM ${NETWORKMANAGER_REF} AS networkmanager
+
+ARG WPA_SUPPLICANT_REF
+FROM ${WPA_SUPPLICANT_REF} AS wpa_supplicant
+
+ARG JUPITER_HW_SUPPORT_REF
+FROM ${JUPITER_HW_SUPPORT_REF} AS jupiter-hw-support
+
+ARG MESA_ANDROID_REF
+FROM ${MESA_ANDROID_REF} AS mesa-android
+
+ARG MESA_X86_REF
+FROM ${MESA_X86_REF} AS mesa-x86
+
+ARG EXTEST_REF
+FROM ${EXTEST_REF} AS extest
+
+ARG ARMADA_SPLASH_REF
+FROM ${ARMADA_SPLASH_REF} AS armada-splash
+
+ARG ARMADA_RGB_REF
+FROM ${ARMADA_RGB_REF} AS armada-rgb
+
+ARG UMTP_RESPONDER_REF
+FROM ${UMTP_RESPONDER_REF} AS umtp-responder
 
 FROM docker.io/library/node:22-slim AS decky-build
 WORKDIR /build/armada-control
 COPY decky/armada-control/package.json decky/armada-control/package-lock.json ./
 RUN npm ci
 COPY decky/armada-control/ ./
-RUN npm run build
+RUN npm test && npm run build
 WORKDIR /build/armada-store
 COPY decky/armada-store/package.json decky/armada-store/package-lock.json ./
 RUN npm ci
@@ -52,11 +92,12 @@ COPY build_files /build_files/
 COPY decky /decky/
 COPY system_files /system_files/
 
-FROM quay.io/fedora/fedora-bootc:44
+FROM ${BASE_IMAGE} AS armada-rootfs
 ARG ARMADA_VERSION=unknown
 LABEL org.opencontainers.image.version="${ARMADA_VERSION}"
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=bind,from=steam-bootstrap,source=/steam-bootstrap,target=/packages/steam-bootstrap \
     --mount=type=bind,from=fex,source=/rpms,target=/packages/fex \
     --mount=type=bind,from=mesa,source=/rpms,target=/packages/mesa \
     --mount=type=bind,from=mangohud,source=/rpms,target=/packages/mangohud \
@@ -64,15 +105,20 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=bind,from=gamescope-session,source=/rpms,target=/packages/gamescope-session \
     --mount=type=bind,from=gamescope-session-steam,source=/rpms,target=/packages/gamescope-session-steam \
     --mount=type=bind,from=kwin,source=/rpms,target=/packages/kwin \
+    --mount=type=bind,from=plasma-mobile,source=/rpms,target=/packages/plasma-mobile \
     --mount=type=bind,from=powerdevil,source=/rpms,target=/packages/powerdevil \
+    --mount=type=bind,from=protontricks,source=/rpms,target=/packages/protontricks \
     --mount=type=bind,from=kernel,source=/kernel,target=/packages/kernel \
     --mount=type=bind,from=inputplumber,source=/rpms,target=/packages/inputplumber \
+    --mount=type=bind,from=steamos-manager,source=/rpms,target=/packages/steamos-manager \
     --mount=type=bind,from=networkmanager,source=/rpms,target=/packages/networkmanager \
+    --mount=type=bind,from=wpa_supplicant,source=/rpms,target=/packages/wpa_supplicant \
     --mount=type=bind,from=jupiter-hw-support,source=/rpms,target=/packages/jupiter-hw-support \
     --mount=type=bind,from=mesa-android,source=/,target=/packages/mesa-android \
     --mount=type=bind,from=mesa-x86,source=/,target=/packages/mesa-x86 \
     --mount=type=bind,from=extest,source=/,target=/packages/extest \
     --mount=type=bind,from=armada-splash,source=/rpms,target=/packages/armada-splash \
+    --mount=type=bind,from=armada-rgb,source=/rpms,target=/packages/armada-rgb \
     --mount=type=bind,from=umtp-responder,source=/rpms,target=/packages/umtp-responder \
     --mount=type=bind,from=decky-build,source=/build/armada-control/dist,target=/packages/decky-dist \
     --mount=type=bind,from=decky-build,source=/build/armada-store/dist,target=/packages/decky-store-dist \
@@ -84,3 +130,20 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     /ctx/build_files/build.sh
 
 RUN bootc container lint
+
+FROM ${CHUNKAH_IMAGE} AS chunkah
+ARG CHUNKAH_CONFIG_STR
+RUN --mount=from=armada-rootfs,target=/chunkah,ro \
+    /bin/bash -o pipefail -c ' \
+        set -e; \
+        start=${SECONDS}; \
+        chunkah build --verbose --compressed --compression-level 6 \
+            --arch arm64 --max-layers 128 --source-date-epoch 0 \
+            --prune /sysroot/ \
+            --label ostree.commit- --label ostree.final-diffid- \
+            --config-str "${CHUNKAH_CONFIG_STR}" \
+            --output oci:/run/src/chunked 2>&1 | tee /run/src/chunkah.log; \
+        echo "Chunkah completed in $((SECONDS - start)) seconds" \
+    '
+
+FROM armada-rootfs AS armada

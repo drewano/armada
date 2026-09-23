@@ -9,23 +9,46 @@ dnf5 -y install --setopt=install_weak_deps=False /packages/mangohud/mangohud-*.f
 
 dnf5 -y install --setopt=install_weak_deps=False \
     /packages/gamescope/terra-gamescope{,-libs}-[0-9]*.aarch64.rpm \
+    steam-devices \
     vulkan-loader \
     vulkan-tools \
     gamemode \
     gtk2 \
     openal-soft \
-    xorg-x11-server-Xwayland \
-    xorg-x11-server-Xvfb
+    xorg-x11-server-Xwayland
 
 # Patched InputPlumber: dpad signed-axis fix
 dnf5 -y install --setopt=install_weak_deps=False /packages/inputplumber/inputplumber-*.rpm
 
+# SteamOS Manager: upstream main plus the Steam Frame series, with our device configs.
+dnf5 -y install --setopt=install_weak_deps=False \
+    /packages/steamos-manager/steamos-manager-[0-9]*.rpm
+
 # Patched NetworkManager: /etc/NetworkManager/ignore-sleep keeps wifi up across fake-suspend.
 dnf5 -y install --setopt=install_weak_deps=False /packages/networkmanager/*.rpm
 
+dnf5 -y install --setopt=install_weak_deps=False /packages/wpa_supplicant/*.rpm
+
 dnf5 -y install --setopt=install_weak_deps=False /packages/armada-splash/*.rpm
 
+dnf5 -y install --setopt=install_weak_deps=False /packages/armada-rgb/*.rpm
+
 dnf5 -y install --setopt=install_weak_deps=False /packages/jupiter-hw-support/*.rpm
+
+# Patched protontricks: Ships with https://github.com/Matoking/protontricks/pull/503
+dnf5 -y install --setopt=install_weak_deps=False \
+    cabextract \
+    unzip \
+    /packages/protontricks/protontricks-[0-9]*.rpm
+
+# winetricks itself: not packaged from Fedora, because their RPM requires wine-common,
+# which doesn't exist on aarch64. winetricks itself is only a shell script.
+WINETRICKS_VER="20260125"
+WINETRICKS_SHA256="431f82fc74000e6c864409f1d8fb495d696c03928808e3e8acffc45179312a7b"
+curl --retry 3 --retry-delay 2 -fsSL -o /usr/bin/winetricks \
+    "https://raw.githubusercontent.com/Winetricks/winetricks/${WINETRICKS_VER}/src/winetricks"
+echo "${WINETRICKS_SHA256}  /usr/bin/winetricks" | sha256sum -c -
+chmod 0755 /usr/bin/winetricks
 
 # Avoid gamescope-session-ogui-steam/-powerstation; Terra's aarch64 deps are broken.
 dnf5 -y install --setopt=install_weak_deps=False --enable-repo=terra \
@@ -92,7 +115,12 @@ EOF
 STEAM_BOOTSTRAP_HOME=/var/home/armada
 STEAM_HOME="${STEAM_BOOTSTRAP_HOME}/.local/share/Steam"
 
-STEAM_BOOTSTRAP_HOME="${STEAM_BOOTSTRAP_HOME}" bash /ctx/build_files/generate-steam-bootstrap.sh
+(cd /packages/steam-bootstrap && sha256sum -c steam-bootstrap.tar.zst.sha256)
+rm -rf "${STEAM_BOOTSTRAP_HOME}"
+mkdir -p "${STEAM_BOOTSTRAP_HOME}"
+tar --zstd -xf /packages/steam-bootstrap/steam-bootstrap.tar.zst -C "${STEAM_BOOTSTRAP_HOME}"
+python3 /ctx/build_files/verify-steam-bootstrap.py \
+    "${STEAM_HOME}/package/steam_client_steamdeck_publicbeta_linuxarm64.installed" "${STEAM_HOME}"
 rm -f /etc/steamos-oobe-image
 
 PROTON_VER="11.0-20260703-slr"
@@ -103,8 +131,8 @@ PROTON_TAR="${PROTON_ARCHIVE_NAME}.tar.xz"
 PROTON_URL="https://github.com/CachyOS/proton-cachyos/releases/download/cachyos-${PROTON_VER}/${PROTON_TAR}"
 PROTON_SHA512_URL="https://github.com/CachyOS/proton-cachyos/releases/download/cachyos-${PROTON_VER}/${PROTON_ARCHIVE_NAME}.sha512sum"
 
-curl --retry 3 --retry-delay 2 -fsSL -o "/tmp/${PROTON_TAR}" "${PROTON_URL}"
-curl --retry 3 --retry-delay 2 -fsSL -o "/tmp/${PROTON_ARCHIVE_NAME}.sha512sum" "${PROTON_SHA512_URL}"
+curl --retry 12 --retry-delay 10 -fsSL -o "/tmp/${PROTON_TAR}" "${PROTON_URL}"
+curl --retry 12 --retry-delay 10 -fsSL -o "/tmp/${PROTON_ARCHIVE_NAME}.sha512sum" "${PROTON_SHA512_URL}"
 cd /tmp
 sha512sum -c "${PROTON_ARCHIVE_NAME}.sha512sum"
 
@@ -126,10 +154,9 @@ python3 /ctx/build_files/patch-proton-cachyos-dxvk-probe.py \
 python3 /ctx/build_files/set-steam-default-compat.py "${STEAM_HOME}" "${PROTON_TOOL_NAME}" "${PROTON_DIR}"
 rm -f "/tmp/${PROTON_TAR}" "/tmp/${PROTON_ARCHIVE_NAME}.sha512sum"
 
-# Pin Steam, Proton, and the FEX rootfs to their own rechunk layers (build-chunked-oci reads the
-# user.component xattr) so a system_files change doesn't re-pull them every OTA.
+# Identify large independently updated components for content-aware layer packing.
 python3 -c 'import os,sys; os.setxattr(sys.argv[1],"user.component",b"steam")' "${STEAM_HOME}"
 python3 -c 'import os,sys; os.setxattr(sys.argv[1],"user.component",b"proton")' "${PROTON_DIR}/${PROTON_TOOL_NAME}"
-python3 -c 'import os,sys; os.setxattr(sys.argv[1],"user.component",b"fex-rootfs")' /usr/share/fex-emu/RootFS
+python3 -c 'import os,sys; os.setxattr(sys.argv[1],"user.component",b"fex-rootfs")' /usr/share/fex-emu/RootFS/ArchLinux.sqsh
 
 echo "Pre-staged: ARM64 Steam bootstrap + CachyOS Proton 11 ${PROTON_VER}"
