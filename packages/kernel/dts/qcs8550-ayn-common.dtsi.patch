@@ -11,7 +11,21 @@ Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn: enable SDHCI capabilities and ru
  		};
  	};
  
-@@ -1096,7 +1096,7 @@
+@@ -467,9 +466,12 @@
+ 		startup-delay-us = <10000>;
+ 
+ 		gpio = <&tlmm 99 GPIO_ACTIVE_HIGH>;
+-		regulator-always-on;
+ 		regulator-boot-on;
+ 		enable-active-high;
++
++		regulator-state-mem {
++			regulator-off-in-suspend;
++		};
+ 	};
+ 
+ 	vph_pwr: regulator-vph-pwr {
+@@ -1096,7 +1098,7 @@
  };
  
  &pcieport0 {
