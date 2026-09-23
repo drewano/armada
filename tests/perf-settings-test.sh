@@ -122,7 +122,7 @@ except ValueError:
 
 # --- armada_perf: sanitize + layering ---------------------------------------
 clean = ap.sanitize_perf(
-    {"nice": -99, "gamescopeNice": 99, "gamescopeRr": True, "scheduler": "lavd",
+    {"nice": -99, "gamescopeNice": 99, "scheduler": "lavd",
      "cores": "bogus list", "wineTopology": False}, ENV)
 check("nice clamped", clean["nice"] == ap.NICE_MIN)
 check("gamescope nice clamped", clean["gamescopeNice"] == ap.GAMESCOPE_NICE_MAX)
@@ -131,56 +131,15 @@ check("wineTopology false kept", clean["wineTopology"] is False)
 check("wineTopology true kept", ap.sanitize_perf({"wineTopology": True})["wineTopology"] is True)
 check("unset keys stay absent", ap.sanitize_perf({}, ENV) == {})
 
-clean_ui = ap.sanitize_perf({"uiNice": 99}, ENV)
-check("ui nice clamped", clean_ui["uiNice"] == ap.NICE_MAX)
-check("ui nice passes through", ap.sanitize_perf({"uiNice": -7}, ENV)["uiNice"] == -7)
-
 state = {"global": {"gamescopeNice": -5, "gamescopeCores": [3, 4, 5, 6, 7]},
-         "override": {"gamescopeCores": ALL, "gamescopeRr": True, "pid": 1}}
+         "override": {"gamescopeCores": ALL, "pid": 1}}
 eff = ap.effective_state(state)
 check("override all clears restrictive global", eff["gamescopeCores"] == ALL)
 check("global survives where override silent", eff["gamescopeNice"] == -5)
-check("override wins", eff["gamescopeRr"] is True)
-check("ui nice default", ap.effective_state({})["uiNice"] == ap.UI_NICE)
-check("ui nice survives absent layers", eff["uiNice"] == ap.UI_NICE)
-layered = ap.effective_state({"global": {"uiNice": 0}})
-check("ui nice zero opt-out honored", layered["uiNice"] == 0)
-
-# apply_ui_boost: threads targeted by tid, opt-out is a no-op
-boost_calls = []
-real_ui_pids, real_setpriority = ap.ui_pids, ap.os.setpriority
-ap.ui_pids = lambda: [os.getpid()]
-ap.os.setpriority = lambda which, who, nice: boost_calls.append((who, nice))
-try:
-    ap.apply_ui_boost({"uiNice": -7})
-    own_tids = set(ap.process_tids(os.getpid()))
-    check("ui boost covers every thread", boost_calls and all(n == -7 for _, n in boost_calls))
-    check("ui boost targets the pid's tids", {who for who, _ in boost_calls} == own_tids)
-    boost_calls.clear()
-    ap.apply_ui_boost({"uiNice": 0})
-    check("non-negative ui nice is a no-op", boost_calls == [])
-    ap.apply_ui_boost({})
-    check("missing ui nice falls back to default", boost_calls and all(n == ap.UI_NICE for _, n in boost_calls))
-finally:
-    ap.ui_pids = real_ui_pids
-    ap.os.setpriority = real_setpriority
-
-# ui_pids finds processes by comm (steamwebhelper is 14 chars, under the 15-char cap)
-fake_ui = subprocess.Popen(
-    ["python3", "-c",
-     'import ctypes, time; ctypes.CDLL("libc.so.6").prctl(15, b"steamwebhelper", 0, 0, 0); time.sleep(30)'],
-    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-try:
-    time.sleep(0.5)
-    check("ui comm scan finds fake webhelper", fake_ui.pid in ap.ui_pids())
-finally:
-    fake_ui.terminate()
-    fake_ui.wait()
-
 factory_tweaks = gt.load()
 factory_global = factory_tweaks["global"]
 check("factory declares every displayed default", set(factory_global) == {
-    "cores", "fexProfile", "gamescopeCores", "gamescopeNice", "gamescopeRr",
+    "cores", "fexProfile", "gamescopeCores", "gamescopeNice",
     "gamescopeVulkanRealtime", "nice", "scheduler", "thunks", "wineTopology",
 })
 check("factory FEX profile loaded", factory_global["fexProfile"] == "default")
@@ -189,9 +148,9 @@ check("factory core masks are unset",
 check("factory game policy loaded",
       factory_global["nice"] == 0 and factory_global["wineTopology"] is True)
 check("factory gamescope policy loaded",
-      factory_global["gamescopeNice"] == -20 and factory_global["gamescopeRr"] is False and
+      factory_global["gamescopeNice"] == -20 and
       factory_global["gamescopeVulkanRealtime"] is True)
-check("factory scheduler loaded", factory_global["scheduler"] == "eevdf")
+check("factory scheduler loaded", factory_global["scheduler"] is None)
 check("factory thunk defaults loaded",
       set(factory_global["thunks"]) == {"Vulkan", "GL", "drm", "WaylandClient", "asound"} and
       all(factory_global["thunks"].values()))
@@ -222,8 +181,7 @@ check("user values override factory defaults",
       overlaid_global["gamescopeNice"] == 0 and
       overlaid_global["gamescopeVulkanRealtime"] is False)
 check("absent user values inherit factory defaults",
-      overlaid_global["scheduler"] == "eevdf" and
-      overlaid_global["gamescopeRr"] is False and
+      overlaid_global["scheduler"] is None and
       overlaid_global["wineTopology"] is True)
 gt.OVERRIDES_CONFIG.unlink()
 
@@ -296,7 +254,7 @@ def fex_result(settings):
 config_path, plain = fex_result({"fexProfile": "default"})
 check("config lands in test cache dir", config_path.startswith(WORK + "/armada-fex/"))
 _, with_perf = fex_result({"fexProfile": "default", "cores": "big", "nice": -5,
-                           "gamescopeRr": True, "scheduler": "lavd",
+                           "scheduler": "lavd",
                            "env": {"X": "1"}, "wineTopology": False})
 check("FEX config unaffected by perf keys", plain == with_perf)
 check("FEX config content sane", plain["Config"]["Multiblock"] == "0")
@@ -388,6 +346,12 @@ pocket5 = run_device_env("Retroid Pocket 5")
 check("device-env SM8250 Proton defaults",
       pocket5.get("ARMADA_PROTON_DEFAULTS") ==
       "proton-cachyos-11.0-arm64")
+mangmi = run_device_env("MANGMI Air Y Pro")
+check("device-env MANGMI profile",
+      mangmi.get("ARMADA_DEVICE_ID") == "mangmi-air-y-pro" and
+      mangmi.get("ARMADA_SOC_CLASS") == "SM8250" and
+      mangmi.get("ARMADA_GAMESCOPE_FAKE_OUTPUT_MM") == "120x90" and
+      mangmi.get("ARMADA_IP_TARGETS") == "ds5")
 
 # --- armada-powerd: config parsing ------------------------------------------
 powerd = load_script("armada-powerd")
@@ -436,15 +400,14 @@ finally:
     control.run = real_control_run
 
 with gt.OVERRIDES_CONFIG.open("w") as f:
-    json.dump({"global": {"gamescopeNice": -5, "uiNice": -6},
-               "games": {"620": {"gamescopeRr": True, "scheduler": "cosmos",
+    json.dump({"global": {"gamescopeNice": -5},
+               "games": {"620": {"scheduler": "cosmos",
                                  "cores": "big", "nice": -4}}}, f)
 
 sel = selectors.DefaultSelector()
 manager = control.PerfManager(sel)
 state = ap.read_state()
 check("refresh writes global layer", state["global"].get("gamescopeNice") == -5)
-check("refresh writes ui nice layer", state["global"].get("uiNice") == -6)
 check("no override at startup", "override" not in state)
 
 child = subprocess.Popen(["sleep", "30"])
@@ -453,19 +416,18 @@ try:
     state = ap.read_state()
     override = state.get("override", {})
     check("override tracks pid", override.get("pid") == child.pid)
-    check("override carries rr", override.get("gamescopeRr") is True)
     check("cosmos domain from cores", override.get("schedulerDomain") == [3, 4, 5, 6, 7])
     check("pidfd armed", manager.pidfd is not None)
 
     # live tweaks edit rebuilds the override instead of dropping it
     with gt.OVERRIDES_CONFIG.open("w") as f:
         json.dump({"global": {"gamescopeNice": -5},
-                   "games": {"620": {"gamescopeRr": False, "scheduler": "lavd"}}}, f)
+                   "games": {"620": {"scheduler": "lavd"}}}, f)
     manager.refresh(keep_override=True)
     override = ap.read_state().get("override", {})
     check("keep_override survives edit", override.get("pid") == child.pid)
     check("override rebuilt from new tweaks",
-          override.get("scheduler") == "lavd" and override.get("gamescopeRr") is False)
+          override.get("scheduler") == "lavd")
 
     # a launch whose layer equals global still tracks the session
     child2 = subprocess.Popen(["sleep", "30"])
