@@ -32,6 +32,7 @@ Reference: armada-os/armada#274 (symptom 2), analysis of Pocknix 0210
 (delayed clk-gating work, different SoC family approach).
 
 index 0882ce7..301b2b6 100644
+Signed-off-by: drewano <drewano@users.noreply.github.com>
 --- a/drivers/mmc/host/sdhci-msm.c
 +++ b/drivers/mmc/host/sdhci-msm.c
 @@ -2933,15 +2933,44 @@ static void sdhci_msm_remove(struct platform_device *pdev)

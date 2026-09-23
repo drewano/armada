@@ -1,4 +1,4 @@
-From: Armada <noreply@armada.local>
+From: drewano <drewano@users.noreply.github.com>
 Subject: [PATCH] cpuidle: governors: port Qualcomm LPM vendor governors (simple & predictive)
 
 Port Qualcomm Low Power Mode (LPM) idle governors from vendor BSP (SM8550/SM8750)
@@ -14,6 +14,7 @@ to mainline Linux 7.2. Includes:
 Both governors register via standard cpuidle_register_governor and can be selected
 dynamically at runtime via /sys/devices/system/cpu/cpuidle/current_governor.
 ---
+Signed-off-by: drewano <drewano@users.noreply.github.com>
 diff --git a/drivers/cpuidle/Kconfig b/drivers/cpuidle/Kconfig
 --- a/drivers/cpuidle/Kconfig
 +++ b/drivers/cpuidle/Kconfig

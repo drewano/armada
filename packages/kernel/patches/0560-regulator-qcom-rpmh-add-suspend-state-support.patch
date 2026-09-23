@@ -40,6 +40,7 @@ Active-set votes are never modified.
  drivers/regulator/qcom-rpmh-regulator.c | 165 +++++++++++++++++++++++-
  1 file changed, 163 insertions(+), 2 deletions(-)
 
+Signed-off-by: drewano <drewano@users.noreply.github.com>
 --- a/drivers/regulator/qcom-rpmh-regulator.c
 +++ b/drivers/regulator/qcom-rpmh-regulator.c
 @@ -204,8 +204,21 @@
