@@ -338,7 +338,7 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0595-cpuidle-governors-qcom-lpm.patch`
   source: Qualcomm BSP / OnePlus SM8550 (adapted for mainline Linux 7.2)
   upstream: not submitted
-  notes: Ports Qualcomm Low Power Mode (LPM) governors (qcom-simple-lpm and predictive qcom-lpm with cluster governors). Eliminates CPU0 WFI lockup and coordinates multi-cluster power collapse under handheld gaming workloads.
+  notes: Ports Qualcomm Low Power Mode (LPM) governors (qcom-simple-lpm and predictive qcom-lpm with cluster governors) for multi-cluster power collapse under handheld gaming workloads. Registering the governors does not elect them: the kernel default stays `menu` until a governor is A/B validated on hardware. Opt in per device with `cpuidle_governor=qcom-simple-lpm` in /etc/armada/sleep.conf (applied at boot by device-quirks).
 - `patches/0001-pcie-update-sm8550-dtsi.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8550/patches/linux/0001-pcie-update-sm8550-dtsi.patch
   upstream: https://lore.kernel.org/r/20260611-wake-v2-33-2744251b1181@oss.qualcomm.com
