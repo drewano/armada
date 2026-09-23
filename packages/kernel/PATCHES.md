@@ -348,7 +348,7 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   upstream: in review
   notes: Skips arming SM8550 uplow threshold IRQs as wakeup sources during suspend, preventing immediate false wakeups while keeping critical threshold alarms armed.
 - `patches/0595-cpuidle-governors-qcom-lpm.patch`
-  source: Qualcomm BSP / OnePlus SM8550 (adapted for mainline Linux 7.2)
+  source: Qualcomm vendor BSP via the AYN Odin 2 GKI 5.15 kernel mirror (github.com/Ayn8550Dev/android_kernel_ayn_qcs8550, drivers/cpuidle/governors/qcom-*-lpm*, last vendor commit 6c65240d9f24), adapted for mainline Linux 7.2
   upstream: not submitted
   notes: Ports Qualcomm Low Power Mode (LPM) governors (qcom-simple-lpm and predictive qcom-lpm with cluster governors) for multi-cluster power collapse under handheld gaming workloads. Registering the governors does not elect them: the kernel default stays `menu` until a governor is A/B validated on hardware. Opt in per device with `cpuidle_governor=qcom-simple-lpm` in /etc/armada/sleep.conf (applied at boot by device-quirks).
 - `patches/0001-pcie-update-sm8550-dtsi.patch`

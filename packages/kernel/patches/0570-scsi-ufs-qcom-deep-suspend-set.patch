@@ -1,14 +1,19 @@
-From: Armada <noreply@armada.local>
-Subject: [PATCH] scsi: ufs: qcom: deep-suspend set (fold auto-contenu v7.2)
+From: drewano <drewano@users.noreply.github.com>
+Subject: [PATCH] scsi: ufs: qcom: deep-suspend set
 
-Fold UFS auto-contenu contre le v7.2 pristine : rebase des fixes
-Pocknix/ROCKNIX (drain relink OOB PM, hibern8-exit clk-scale,
-auto-hibern8 collision, mphy park, rx-linecfg + header phy partagé,
-duplicate POST_CHANGE fusionné). La variante in-repo ne fold PAS le
-0511 upstream (re-enable IRQ sur échec de host reset), qui reste une
-entrée séparée du series.
-Deep suspend utilise LINK_OFF sur cette plateforme.
+UFS deep-suspend set rebased onto pristine v7.2, from the
+Pocknix/ROCKNIX set: phy rx-linecfg around link startup (with the
+shared include/linux/phy/phy-qcom-qmp-ufs.h header), HW auto-hibern8
+disabled when SW clk-gating owns hibern8 parking, and clk-scale
+hibern8-exit error propagation.
 
+The in-repo variant does not fold the upstream 0511 (re-enable IRQ on
+host-reset failure), which stays a separate series entry; the remaining
+archived pieces live in 0571/0572/0573.
+
+
+Signed-off-by: drewano <drewano@users.noreply.github.com>
+---
 diff --git a/drivers/phy/qualcomm/phy-qcom-qmp-ufs.c b/drivers/phy/qualcomm/phy-qcom-qmp-ufs.c
 index 0f4ad24..6aad4d9 100644
 --- a/drivers/phy/qualcomm/phy-qcom-qmp-ufs.c

@@ -1,11 +1,15 @@
-From: Armada <noreply@armada.local>
+From: drewano <drewano@users.noreply.github.com>
 Subject: [PATCH] thermal: qcom: tsens: skip SM8550 uplow wake IRQ
 
-Adaptation 7.2 de Pocknix/ROCKNIX 0203 : sur SM8550 l'IRQ uplow ordinaire
-réveille s2idle immédiatement (pm_wakeup_irq pointe dessus à chaque
-tentative) — on ne l'arme pas en wakeup sur qcom,sm8550 ; critical reste
-armé. Notre 0204 masque déjà les seuils bas pendant le suspend.
+Linux 7.2 adaptation of Pocknix/ROCKNIX 0203: on SM8550 the ordinary
+uplow IRQ wakes s2idle immediately (pm_wakeup_irq points at it on every
+attempt), so it is left non-wakeup on qcom,sm8550; the critical
+threshold stays armed. Our 0204 already masks the low thresholds during
+suspend.
 
+
+Signed-off-by: drewano <drewano@users.noreply.github.com>
+---
 diff --git a/drivers/thermal/qcom/tsens.c b/drivers/thermal/qcom/tsens.c
 index 51f20ef..6df6420 100644
 --- a/drivers/thermal/qcom/tsens.c

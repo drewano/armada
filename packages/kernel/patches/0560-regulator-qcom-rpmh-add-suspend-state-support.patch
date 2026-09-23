@@ -36,6 +36,7 @@ suspend ops, and ops->resume, only for those).  The companion regulator
 core patch maps s2idle (PM_SUSPEND_TO_IDLE) to the same state-mem
 constraints, so the ops fire for both suspend modes on this platform.
 Active-set votes are never modified.
+Signed-off-by: drewano <drewano@users.noreply.github.com>
 ---
  drivers/regulator/qcom-rpmh-regulator.c | 165 +++++++++++++++++++++++-
  1 file changed, 163 insertions(+), 2 deletions(-)
