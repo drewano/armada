@@ -1,0 +1,84 @@
+From: Armada <noreply@armada.local>
+Subject: [PATCH EXPERIMENTAL] arm64: dts: qcom: sm8550: add system_pd with deepest system idle state
+
+*** EXPERIMENTAL — sm8550-systempd-exp branch only. Do NOT merge to main
+    without on-device validation (armada#274). ***
+
+SM8550 devices never enter AOSD/CXSD during s2idle (qcom_stats shows
+aosd=cxsd=0 on every board tested: Odin 2, Thor, RP6). Unlike SM8750,
+X1E80100 and Kaanapali, the SM8550 dtsi describes no system-level power
+domain: apps_rsc votes on cluster_pd, so RPMh resource votes are only
+coordinated down to the cluster level and the AOP never sees a full
+system idle.
+
+This ports the upstream SM8750 pattern verbatim
+(arch/arm64/boot/dts/qcom/sm8750.dtsi lines 208-214, 319-331, 5743):
+
+ - add a domain_ss3 system idle state under domain-idle-states;
+ - insert system_pd (power-domain-system) above cluster_pd and rewire
+   cluster_pd -> system_pd;
+ - move the apps_rsc power-domains vote from cluster_pd to system_pd.
+
+The psci-suspend-param for domain_ss3 is UNVERIFIED on SM8550 silicon.
+SM8750 uses 0x0200c354 (same param as X1E80100 domain_ss3). No SM8550
+downstream (Xiaomi/OnePlus/QCOM) ships a PL2-level system state — all
+stop at APSS_OFF (cluster). Candidate params if 0x0200c354 is rejected
+by the SM8550 AOP/TZ: 0x0200c344, 0x4200c344.
+
+On-device validation checklist (Odin 2):
+ 1. Boot: no new psci/printk errors, cpuidle domains registered
+    (dmesg "psci: OSI mode supported" already present);
+ 2. s2idle soak: /sys/kernel/debug/qcom_stats aosd/cxsd counters
+    increment (structurally zero before this patch);
+ 3. Resume: clean (no hang/hard reset — the PCIe suspend-OPP floor
+    from 0513+0520 is a prerequisite, keep them BEFORE this patch);
+ 4. Battery soak ~60-100 mA expected vs 128-170 mA measured stock.
+
+If AOP rejects the param, the fallback ladder is one-line param swaps
+recorded above; if the SoC hangs at freeze entry, drop this patch
+entirely (revert is clean: pure DT addition, no driver dependency).
+
+Depends-on: 0513 (PCI: honour opp suspend_opp), 0520 (pcie suspend opp
+DT) — without them, wake from a DDR/LLCC-off state hard-resets.
+---
+diff --git a/arch/arm64/boot/dts/qcom/sm8550.dtsi b/arch/arm64/boot/dts/qcom/sm8550.dtsi
+index 3962019..b9fa02d 100644
+--- a/arch/arm64/boot/dts/qcom/sm8550.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm8550.dtsi
+@@ -382,6 +382,14 @@
+ 				exit-latency-us = <4400>;
+ 				min-residency-us = <10150>;
+ 			};
++
++			domain_ss3: domain-sleep-0 {
++				compatible = "domain-idle-state";
++				arm,psci-suspend-param = <0x0200c354>;
++				entry-latency-us = <2800>;
++				exit-latency-us = <4400>;
++				min-residency-us = <10150>;
++			};
+ 		};
+ 	};
+ 
+@@ -829,6 +837,12 @@
+ 		cluster_pd: power-domain-cluster {
+ 			#power-domain-cells = <0>;
+ 			domain-idle-states = <&cluster_sleep_0>, <&cluster_sleep_1>;
++			power-domains = <&system_pd>;
++		};
++
++		system_pd: power-domain-system {
++			#power-domain-cells = <0>;
++			domain-idle-states = <&domain_ss3>;
+ 		};
+ 	};
+ 
+@@ -5759,7 +5773,7 @@
+ 			qcom,drv-id = <2>;
+ 			qcom,tcs-config = <ACTIVE_TCS    3>, <SLEEP_TCS     2>,
+ 					  <WAKE_TCS      2>, <CONTROL_TCS   0>;
+-			power-domains = <&cluster_pd>;
++			power-domains = <&system_pd>;
+ 
+ 			apps_bcm_voter: bcm-voter {
+ 				compatible = "qcom,bcm-voter";

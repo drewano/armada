@@ -125,6 +125,7 @@ v9_20260729_qualcomm_crypto_qce_runtime_pm_interconnect.patch
 # ============== SM8550 DTSI prerequisites ==============
 0001-pcie-update-sm8550-dtsi.patch
 0520-arm64-dts-qcom-sm8550-add-a-pcie-suspend-opp.patch
+0540-arm64-dts-qcom-sm8550-experimental-system-pd-and-deepest-idle.patch
 0120-20250728_konradybcio_gpu_cc_power_requirements_reality_check.patch
 0121-pmdomain-qcom-rpmhpd-presync-floor-gmu-rails.patch
 0122-interconnect__qcom__sm8550__Enable_QoS_configuration.patch

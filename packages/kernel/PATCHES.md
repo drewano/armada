@@ -343,6 +343,10 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: armada-packages sm8550-sleep / ROCKNIX PR 3126 (gh123man)
   upstream: in review
   notes: Recovers hibern8-enter clock-gating failures inline instead of leaving the link broken. Adapted from the archived version: hba->sm8550_native_sleep_workarounds is set from the qcom,sm8550-ufshc compatible in ufs_qcom_init() instead of the archived sm8550.ns=1 cmdline gate this tree does not carry.
+- `patches/0540-arm64-dts-qcom-sm8550-experimental-system-pd-and-deepest-idle.patch`
+  source: armada (verbatim port of the upstream SM8750 system_pd pattern)
+  upstream: not submitted (experimental)
+  notes: EXPERIMENTAL, exp/systempd-fullstack branch only - do not merge without on-device validation. Adds domain_ss3 (psci param 0x0200c354, unverified on SM8550 silicon) + system_pd above cluster_pd, rewires apps_rsc to system_pd, aiming to unlock aosd/cxsd in s2idle. Retested here on top of the FULL stack (regulator sleep votes 0560/0561 armed by the bob2/l15b DT, UFS deep set 0570-0573, quiesced fans/IRQs) - the August attempt predated those votes. Fallback params if AOP rejects: 0x0200c344, 0x4200c344. Depends on 0513 + 0520 (PCIe suspend-OPP floor) staying earlier in the series.
 - `patches/0590-thermal-qcom-tsens-skip-sm8550-uplow-wake-irq.patch`
   source: ROCKNIX PR 3126 (Edouard Durand)
   upstream: in review
