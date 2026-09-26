@@ -1,0 +1,214 @@
+From: Armada <noreply@armada.local>
+Subject: [PATCH EXPERIMENTAL] soc: qcom: smp2p sleep-state handshake for SM8550 suspend
+
+*** EXPERIMENTAL — sm8550-sleepstate-exp branch only until validated on
+    device (armada#274). ***
+
+Mainline suspend never tells the remote subsystems that the AP is going
+to sleep. The vendor kernel (kalama VENDOR.13.2.6) carries a 140-line
+driver that publishes an "awake" bit (bit 12) in the sleepstate SMEM
+entry shared over smp2p with the ADSP, clears it at PM_SUSPEND_PREPARE
+and restores it at PM_POST_SUSPEND, and takes a "sleepstate_see"
+interrupt so subsystem sleep-state changes wake the AP.
+
+Without this handshake the AOP never sees the subsystems agree to sleep:
+on the AYN Odin 2, measured with the battery coulomb counter, PSCI
+SYSTEM_SUSPEND ("deep") burns 400-500 mA (~1.8 W) with arch_timer still
+ticking at 43 irq/s through the "suspend" — a façade power state, and
+the measured cause of the right-side heat in sleep (armada#274).
+
+This is a direct port of drivers/soc/qcom/smp2p_sleepstate.c from the
+Qualcomm vendor kernel (The Linux Foundation, GPL-2.0-only), adapted:
+builtin_platform_driver, probe error paths, module includes. The DT side
+adds the sleepstate/sleepstate_see entries to smp2p-adsp and the driver
+node, mirroring the vendor kalama.dtsi.
+
+Validation ladder (Odin 2):
+ 1. Boot: driver probes, "smp2p-sleepstate" wakeup source registered;
+ 2. suspend: journal shows no errors, ADSP does not crash (audio/BT
+    still alive after resume);
+ 3. coulomb counter across a deep soak: 475 mA baseline -> target
+    under 150 mA;
+ 4. apss/aosd counters in /sys/kernel/debug/qcom_stats/ may start
+    moving (cluster collapse unblocked).
+
+If suspend hangs at entry (subsystem never acks), the wake path is the
+power button; revert is clean (driver + DT addition only).
+---
+diff --git a/arch/arm64/boot/dts/qcom/sm8550.dtsi b/arch/arm64/boot/dts/qcom/sm8550.dtsi
+index 3962019..cada5b9 100644
+--- a/arch/arm64/boot/dts/qcom/sm8550.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm8550.dtsi
+@@ -1111,6 +1111,25 @@
+ 			interrupt-controller;
+ 			#interrupt-cells = <2>;
+ 		};
++
++		sleepstate_smp2p_out: sleepstate-out {
++			qcom,entry-name = "sleepstate";
++			#qcom,smem-state-cells = <1>;
++		};
++
++		sleepstate_smp2p_in: sleepstate-in {
++			qcom,entry-name = "sleepstate_see";
++			interrupt-controller;
++			#interrupt-cells = <2>;
++		};
++	};
++
++	smp2p_sleepstate: smp2p-sleepstate {
++		compatible = "qcom,smp2p-sleepstate";
++		qcom,smem-states = <&sleepstate_smp2p_out 0>;
++		interrupt-parent = <&sleepstate_smp2p_in>;
++		interrupts = <0 0>;
++		interrupt-names = "smp2p-sleepstate-in";
+ 	};
+ 
+ 	smp2p-cdsp {
+diff --git a/drivers/soc/qcom/Makefile b/drivers/soc/qcom/Makefile
+index 798643b..766e08e 100644
+--- a/drivers/soc/qcom/Makefile
++++ b/drivers/soc/qcom/Makefile
+@@ -28,6 +28,7 @@ obj-$(CONFIG_QCOM_SMEM) +=	qcom_smem.o
+ obj-$(CONFIG_QCOM_SMEM_STATE) += smem_state.o
+ CFLAGS_smp2p.o := -I$(src)
+ obj-$(CONFIG_QCOM_SMP2P)	+= smp2p.o
++obj-y					+= smp2p-sleepstate.o
+ obj-$(CONFIG_QCOM_SMSM)	+= smsm.o
+ obj-$(CONFIG_QCOM_SOCINFO)	+= socinfo.o
+ obj-$(CONFIG_QCOM_SPM)		+= spm.o
+diff --git a/drivers/soc/qcom/smp2p-sleepstate.c b/drivers/soc/qcom/smp2p-sleepstate.c
+new file mode 100644
+index 0000000..9645aae
+--- /dev/null
++++ b/drivers/soc/qcom/smp2p-sleepstate.c
+@@ -0,0 +1,129 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
++ * Copyright (c) 2026 Armada contributors
++ *
++ * Qualcomm SMP2P sleep-state handshake, ported from the vendor kernel
++ * (drivers/soc/qcom/smp2p_sleepstate.c, kalama VENDOR.13.2.6).
++ *
++ * The AP publishes an "awake" bit (bit 12) in the sleepstate SMEM entry
++ * shared with the remote subsystems. Standard mainline suspend never
++ * clears it, so the ADSP/modem never learn that the AP went to sleep,
++ * the AOP never sees the subsystems agree to sleep, and system suspend
++ * on SM8550 handhelds settles at awake-level power draw instead of a
++ * real system power down. Clearing the bit at PM_SUSPEND_PREPARE (and
++ * restoring it on resume) is the missing half of the handshake.
++ */
++#include <linux/interrupt.h>
++#include <linux/mod_devicetable.h>
++#include <linux/of_irq.h>
++#include <linux/platform_device.h>
++#include <linux/pm_wakeup.h>
++#include <linux/soc/qcom/smem_state.h>
++#include <linux/suspend.h>
++
++#define PROC_AWAKE_ID 12 /* 12th bit */
++#define AWAKE_BIT BIT(PROC_AWAKE_ID)
++
++static struct wakeup_source *notify_ws;
++
++struct smp2p_state {
++	struct qcom_smem_state *state;
++	struct notifier_block nb;
++};
++
++static int sleepstate_pm_notifier(struct notifier_block *nb,
++				  unsigned long event, void *unused)
++{
++	struct smp2p_state *smp2p_info =
++		container_of(nb, struct smp2p_state, nb);
++
++	switch (event) {
++	case PM_SUSPEND_PREPARE:
++		qcom_smem_state_update_bits(smp2p_info->state, AWAKE_BIT, 0);
++		break;
++	case PM_POST_SUSPEND:
++		qcom_smem_state_update_bits(smp2p_info->state, AWAKE_BIT,
++					    AWAKE_BIT);
++		break;
++	}
++
++	return NOTIFY_DONE;
++}
++
++static irqreturn_t smp2p_sleepstate_handler(int irq, void *ctxt)
++{
++	__pm_wakeup_event(notify_ws, 200);
++	return IRQ_HANDLED;
++}
++
++static int smp2p_sleepstate_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct smp2p_state *smp2p_info;
++	int ret, irq;
++
++	smp2p_info = devm_kzalloc(dev, sizeof(*smp2p_info), GFP_KERNEL);
++	if (!smp2p_info)
++		return -ENOMEM;
++
++	smp2p_info->state = qcom_smem_state_get(dev, NULL, &ret);
++	if (IS_ERR(smp2p_info->state))
++		return ret;
++
++	/* Tell the subsystems the AP is up. */
++	qcom_smem_state_update_bits(smp2p_info->state, AWAKE_BIT, AWAKE_BIT);
++
++	smp2p_info->nb.notifier_call = sleepstate_pm_notifier;
++	smp2p_info->nb.priority = INT_MAX;
++
++	ret = register_pm_notifier(&smp2p_info->nb);
++	if (ret) {
++		dev_err(dev, "power state notification error %d\n", ret);
++		return ret;
++	}
++
++	notify_ws = wakeup_source_register(dev, "smp2p-sleepstate");
++	if (!notify_ws) {
++		ret = -ENOMEM;
++		goto err_ws;
++	}
++
++	irq = of_irq_get_byname(dev->of_node, "smp2p-sleepstate-in");
++	if (irq <= 0) {
++		dev_err(dev, "failed to get irq for smp2p_sleep_state\n");
++		ret = -EPROBE_DEFER;
++		goto err;
++	}
++
++	ret = devm_request_threaded_irq(dev, irq, NULL,
++					smp2p_sleepstate_handler,
++					IRQF_ONESHOT | IRQF_TRIGGER_RISING,
++					"smp2p_sleepstate", dev);
++	if (ret) {
++		dev_err(dev, "failed to register irq %d\n", irq);
++		goto err;
++	}
++
++	return 0;
++
++err:
++	wakeup_source_unregister(notify_ws);
++err_ws:
++	unregister_pm_notifier(&smp2p_info->nb);
++	return ret;
++}
++
++static const struct of_device_id smp2p_slst_match_table[] = {
++	{ .compatible = "qcom,smp2p-sleepstate" },
++	{ }
++};
++
++static struct platform_driver smp2p_sleepstate_driver = {
++	.probe = smp2p_sleepstate_probe,
++	.driver = {
++		.name = "smp2p_sleepstate",
++		.of_match_table = smp2p_slst_match_table,
++	},
++};
++builtin_platform_driver(smp2p_sleepstate_driver);

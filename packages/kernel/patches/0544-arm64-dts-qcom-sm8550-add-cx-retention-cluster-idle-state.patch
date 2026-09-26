@@ -1,0 +1,71 @@
+From: Armada <noreply@armada.local>
+Subject: [PATCH EXPERIMENTAL] arm64: dts: qcom: sm8550: add the vendor CX-retention cluster idle state
+
+*** EXPERIMENTAL — sm8550-vendor-sleep branch until validated on device
+    (armada#274). Pure DT addition; revert is clean. ***
+
+Mainline sm8550.dtsi exposes two cluster-level domain idle states
+(cluster-sleep-0 = cluster power-down 0x41000044, cluster-sleep-1 = APSS
+off 0x4100c344). The vendor DTs carry a third, intermediate state between
+them:
+
+ - AYN Odin 2 firmware (odin2_20231201, base "Crow SoC" DTB in
+   vendor_boot, dtbo entry 40 "Kalama SG HHG"):
+     CX_RET: cx-ret {
+         idle-state-name = "cx-ret";
+         entry-latency-us = <1561>;  exit-latency-us = <2801>;
+         min-residency-us = <8550>;
+         arm,psci-suspend-param = <0x41001344>;
+     };
+ - CLUSTER_PD.domain-idle-states = <CLUSTER_PWR_DN CX_RET APSS_OFF>.
+
+The LineageOS 23.2 qcs8550 base keeps only CLUSTER_PWR_DN + APSS_OFF
+(0x4100c344), which matches mainline — CX_RET is optional on this
+silicon, which is why it is shipped as a separate opt-out patch instead
+of a dtsi rewrite.
+
+This adds cx-ret as cluster-sleep-cxret between cluster-sleep-0 and
+cluster-sleep-1 with the exact vendor latencies, and wires it into
+cluster_pd's domain-idle-states. Rationale: with the qcom-lpm governor
+elected (0595), an intermediate state between cluster-d4 and APSS_OFF
+gives the predictor a residency-cheaper landing spot when the predicted
+idle window is too short to amortize APSS_OFF's 2800/4400 us latencies —
+the same ladder the vendor governor walks.
+
+Ordering note: this patch must be applied BEFORE 0540 (system_pd), whose
+cluster_pd hunk context includes the domain-idle-states line rewritten
+here.
+
+Validation (Odin 2): after boot, /sys/devices/system/cpu/cpu0/cpuidle/
+must list the new state; during an s2idle soak with the qcom-lpm governor
+the state usage histogram should populate between cluster-sleep-0 and
+cluster-sleep-1. If the AOP silently demotes 0x41001344 (state never
+entered, no errors), the state is inert but harmless — drop this patch.
+---
+diff --git a/arch/arm64/boot/dts/qcom/sm8550.dtsi b/arch/arm64/boot/dts/qcom/sm8550.dtsi
+index 3962019..e3a1f7b 100644
+--- a/arch/arm64/boot/dts/qcom/sm8550.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm8550.dtsi
+@@ -373,6 +373,14 @@
+ 				exit-latency-us = <2350>;
+ 				min-residency-us = <9144>;
+ 			};
++
++			cluster_sleep_cxret: cluster-sleep-cxret {
++				compatible = "domain-idle-state";
++				arm,psci-suspend-param = <0x41001344>;
++				entry-latency-us = <1561>;
++				exit-latency-us = <2801>;
++				min-residency-us = <8550>;
++			};
+
+ 			cluster_sleep_1: cluster-sleep-1 {
+ 				compatible = "domain-idle-state";
+@@ -829,7 +837,7 @@
+
+ 		cluster_pd: power-domain-cluster {
+ 			#power-domain-cells = <0>;
+-			domain-idle-states = <&cluster_sleep_0>, <&cluster_sleep_1>;
++			domain-idle-states = <&cluster_sleep_0>, <&cluster_sleep_cxret>, <&cluster_sleep_1>;
+ 		};
+ 	};

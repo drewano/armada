@@ -722,3 +722,52 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: https://github.com/bylaws/linux/commit/7ae989a43ae7e3cb8007ac21c28dacc24c9d8320
   upstream: unknown
   notes: Rebased patch context for Linux 7.2.3 and Armada's compat-input patch; the unaligned-atomic handler is unchanged.
+
+- `patches/0541-mmc-sdhci-msm-mask-controller-irqs-while-runtime-suspended.patch`
+  source: armada
+  upstream: not submitted
+  notes: Masks sdhci-msm controller IRQs while runtime suspended to stop the mmc0 IRQ storm during s2idle. Scoped to qcom,sm8550/qcom,sm8750 machines (of_machine_is_compatible); other platforms keep stock behavior. Renumbered from the fork 0521 (upstream #545 took the number).
+- `patches/0542-usb-dwc3-qcom-skip-phy-management-by-usb-core.patch`
+  source: lore.kernel.org/all/20260723-dwc3-skip-init-quirk-v1-1-97682bb44ebd@oss.qualcomm.com
+  upstream: in review
+  notes: Stops double phy_init where HCD core holds a reference, preventing dwc3 PHY vote from blocking CX power collapse in s2idle. Renumbered from the fork 0522.
+- `patches/0543-hwmon-pwm-fan-quiesce-tach-irqs-and-rpm-timer-across-suspend.patch`
+  source: armada
+  upstream: not submitted
+  notes: Quiesces pwm-fan tachometer interrupts and the 1 Hz polling timer across suspend (self-rearm guard included) to eliminate background wakeups. Scoped to qcom,sm8550/qcom,sm8750 machines; other platforms keep stock behavior. Renumbered from the fork 0530 (upstream #545 took the number for an ASoC patch).
+- `patches/0544-arm64-dts-qcom-sm8550-add-cx-retention-cluster-idle-state.patch`
+  source: armada (mined from the AYN Odin 2 firmware, odin2_20231201 vendor_boot base DTB "Crow SoC": CX_RET cx-ret, param 0x41001344, latencies 1561/2801/8550)
+  upstream: not submitted (experimental)
+  notes: Adds the vendor intermediate cluster idle state (CX retention) between cluster-sleep-0 and cluster-sleep-1, wired into cluster_pd. The LineageOS 23.2 qcs8550 base does not ship it (only cluster-d4 + APSS_OFF), so it is optional on this silicon; gives the qcom-lpm governor a cheaper landing state when the predicted idle window cannot amortize APSS_OFF latencies. Must be applied before 0540 (its cluster_pd context includes the rewritten domain-idle-states line).
+- `patches/0550-soc-qcom-smp2p-sleepstate-subsystem-sleep-handshake.patch`
+  source: Qualcomm vendor BSP via the AYN Odin 2 GKI 5.15 kernel mirror (drivers/soc/qcom/smp2p_sleepstate.c, kalama VENDOR.13.2.6), ported for mainline Linux 7.2
+  upstream: not submitted
+  notes: THE lost vendor sleep piece, recovered from the archived armada-packages sm8550-sleepstate-exp branch (validated on hardware 2026-08-23: apss 0 -> 23, first cluster collapse ever observed). Publishes the AP "awake" bit (bit 12) in the sleepstate SMEM entry shared with the ADSP, clears it at PM_SUSPEND_PREPARE and restores it at PM_POST_SUSPEND, plus the sleepstate_see wake interrupt. Without it mainline never tells the subsystems the AP sleeps, so the AOP never sees them agree to sleep. Dropped from the PR#8 rewrite by omission; restored here.
+- `patches/0570-scsi-ufs-qcom-deep-suspend-set.patch`
+  source: ROCKNIX PR 3126 (jaewun, gh123man)
+  upstream: in review
+  notes: Folded UFS deep suspend set (phy linecfg around link startup, HW auto-hibern8 disabled when SW clk-gating owns hibern8 parking, hibern8-exit failure propagated from clk scaling). The auto-hibern8 quirk is scoped to the qcom,sm8550-ufshc compatible. The remaining pieces of the archived stack live in 0571/0572/0573. The archived drain-relink OOB PM poller (ex-0201) is intentionally not restored: Linux 7.2 switched ufshcd_intr to a plain hard IRQ handler, removing the async completion window it drained.
+- `patches/0571-scsi-ufs-qcom-keep-mphy-powered-on-hibern8-park.patch`
+  source: armada-packages sm8550-sleep / ROCKNIX PR 3126 (jaewun)
+  upstream: in review
+  notes: Keeps the M-PHY powered when the link is only parked in HIBERN8; scoped to the no_phy_retention drvdata, which upstream matches for both qcom,sm8550-ufshc and qcom,sm8650-ufshc (SM8550 and SM8650 boards). True LINK_OFF suspend still powers the PHY off.
+- `patches/0572-scsi-ufs-hold-clk-gating-across-system-pm.patch`
+  source: armada-packages sm8550-sleep / ROCKNIX PR 3126 (gh123man)
+  upstream: in review
+  notes: Holds clock gating across system PM prepare/complete so the gate worker cannot enter DME_HIBER_ENTER mid-suspend; scoped to the qcom,sm8550-ufshc compatible.
+- `patches/0573-scsi-ufs-recover-hibern8-enter-clk-gating.patch`
+  source: armada-packages sm8550-sleep / ROCKNIX PR 3126 (gh123man)
+  upstream: in review
+  notes: Recovers hibern8-enter clock-gating failures inline instead of leaving the link broken. Adapted from the archived version: hba->sm8550_native_sleep_workarounds is set from the qcom,sm8550-ufshc compatible in ufs_qcom_init() instead of the archived sm8550.ns=1 cmdline gate this tree does not carry.
+- `patches/0540-arm64-dts-qcom-sm8550-experimental-system-pd-and-deepest-idle.patch`
+  source: armada (verbatim port of the upstream SM8750 system_pd pattern)
+  upstream: not submitted (experimental)
+  notes: EXPERIMENTAL, exp branches only - do not merge without on-device validation. Adds domain_ss3 (psci param 0x0200c354, unverified on SM8550 silicon) + system_pd above cluster_pd, rewires apps_rsc to system_pd, aiming to unlock aosd/cxsd in s2idle. Retested here on top of the FULL stack (regulator sleep votes now armed by upstream 0523/0524 + the #545 qcs8550-ayn-common state-mem DT, UFS deep set 0570-0573, quiesced fan/sdhci IRQs, smp2p sleepstate handshake 0550, cx-ret ladder 0544) - the August attempt predated all of those. Vendor firmware mining (AYN Crow + LOS qcs8550 bases) confirms NO SM8550 downstream ships a PL2 system state - they stop at APSS_OFF - so param rejection is a real possibility: fallbacks 0x0200c344, 0x4200c344. Depends on 0513 + 0520 (PCIe suspend-OPP floor) staying earlier in the series; applies after 0544 (context includes the cxret domain-idle-states line).
+- `patches/0590-thermal-qcom-tsens-skip-sm8550-uplow-wake-irq.patch`
+  source: ROCKNIX PR 3126 (Edouard Durand)
+  upstream: in review
+  notes: Skips arming SM8550 uplow threshold IRQs as wakeup sources during suspend, preventing immediate false wakeups while keeping critical threshold alarms armed.
+- `patches/0595-cpuidle-governors-qcom-lpm.patch`
+  source: Qualcomm vendor BSP via the AYN Odin 2 GKI 5.15 kernel mirror (github.com/Ayn8550Dev/android_kernel_ayn_qcs8550, drivers/cpuidle/governors/qcom-*-lpm*, last vendor commit 6c65240d9f24), adapted for mainline Linux 7.2
+  upstream: not submitted
+  notes: Ports Qualcomm Low Power Mode (LPM) governors (qcom-simple-lpm and predictive qcom-lpm with cluster governors) for multi-cluster power collapse under handheld gaming workloads. Registering the governors does not elect them: the kernel default stays `menu` until a governor is A/B validated on hardware. Opt in per device with `cpuidle_governor=qcom-lpm` in /etc/armada/sleep.conf (applied at boot by device-quirks; on-device A/B 2026-09-24: qcom-lpm 389 mA / menu 405 mA, apss 99% residency).
