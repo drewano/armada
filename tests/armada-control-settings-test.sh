@@ -294,6 +294,50 @@ env ARMADA_DEVICE_ENV="$DEVICE_ENV" \
 grep -Fx '[s2idle] deep' "$WORK/mem_sleep" >/dev/null
 [[ -e "$WORK/ignore-sleep" ]]
 
+# cpuidle_governor is parsed by device-env and applied by device-quirks as an
+# exact-token election; unknown or substring names keep the kernel default.
+mkdir -p "$WORK/cpuidle"
+printf 'menu qcom-simple-lpm qcom-lpm\n' >"$WORK/cpuidle/available_governors"
+printf 'menu\n' >"$WORK/cpuidle/current_governor"
+
+printf 'cpuidle_governor = qcom-lpm\n' >"$WORK/sleep.conf"
+env ARMADA_DEVICE_DIR="$ROOT/system_files/usr/lib/armada/devices" \
+    ARMADA_MODEL="AYN Odin 2" ARMADA_SLEEP_CONFIG="$WORK/sleep.conf" \
+    ARMADA_MEM_SLEEP_PATH="$WORK/mem_sleep" \
+    "$DEVICE_ENV" | grep -Fx 'ARMADA_CPUIDLE_GOVERNOR=qcom-lpm' >/dev/null
+
+printf 'suspend_mode=fake\ncpuidle_governor=qcom-simple-lpm\n' >"$WORK/sleep.conf"
+env ARMADA_DEVICE_ENV="$DEVICE_ENV" \
+    ARMADA_DEVICE_DIR="$ROOT/system_files/usr/lib/armada/devices" \
+    ARMADA_MODEL="AYN Odin 2" ARMADA_SLEEP_CONFIG="$WORK/sleep.conf" \
+    ARMADA_MEM_SLEEP_PATH="$WORK/mem_sleep" \
+    ARMADA_NM_IGNORE_SLEEP="$WORK/ignore-sleep" \
+    ARMADA_CPUIDLE_DIR="$WORK/cpuidle" \
+    "$DEVICE_QUIRKS" >/dev/null
+grep -Fx 'qcom-simple-lpm' "$WORK/cpuidle/current_governor" >/dev/null
+
+printf 'cpuidle_governor=lpm\n' >"$WORK/sleep.conf"
+printf 'menu\n' >"$WORK/cpuidle/current_governor"
+env ARMADA_DEVICE_ENV="$DEVICE_ENV" \
+    ARMADA_DEVICE_DIR="$ROOT/system_files/usr/lib/armada/devices" \
+    ARMADA_MODEL="AYN Odin 2" ARMADA_SLEEP_CONFIG="$WORK/sleep.conf" \
+    ARMADA_MEM_SLEEP_PATH="$WORK/mem_sleep" \
+    ARMADA_NM_IGNORE_SLEEP="$WORK/ignore-sleep" \
+    ARMADA_CPUIDLE_DIR="$WORK/cpuidle" \
+    "$DEVICE_QUIRKS" >/dev/null 2>&1
+grep -Fx 'menu' "$WORK/cpuidle/current_governor" >/dev/null
+
+printf 'suspend_mode=fake\n' >"$WORK/sleep.conf"
+printf 'menu\n' >"$WORK/cpuidle/current_governor"
+env ARMADA_DEVICE_ENV="$DEVICE_ENV" \
+    ARMADA_DEVICE_DIR="$ROOT/system_files/usr/lib/armada/devices" \
+    ARMADA_MODEL="AYN Odin 2" ARMADA_SLEEP_CONFIG="$WORK/sleep.conf" \
+    ARMADA_MEM_SLEEP_PATH="$WORK/mem_sleep" \
+    ARMADA_NM_IGNORE_SLEEP="$WORK/ignore-sleep" \
+    ARMADA_CPUIDLE_DIR="$WORK/cpuidle" \
+    "$DEVICE_QUIRKS" >/dev/null
+grep -Fx 'menu' "$WORK/cpuidle/current_governor" >/dev/null
+
 printf '%s\n' \
     '#!/usr/bin/env bash' \
     'printf "ARMADA_SUSPEND_MODE=%s\\n" "$TEST_SLEEP_MODE"' \

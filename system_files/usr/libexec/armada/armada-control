@@ -563,7 +563,13 @@ def action_write_config(request):
     atomic_write(CONFIG_PATHS[name], text)
     if name == "power":
         # Fire-and-forget: do not block the single-threaded selector loop on a slow D-Bus reload.
-        threading.Thread(target=lambda: run(["/usr/bin/armada-power", "reload"], timeout=15), daemon=True).start()
+        def _reload_power():
+            try:
+                run(["/usr/bin/armada-power", "reload"], timeout=15)
+            except Exception as e:
+                print(f"armada-power reload failed: {e}", file=sys.stderr)
+
+        threading.Thread(target=_reload_power, daemon=True).start()
     if name == "tweaks":
         PERF.refresh(keep_override=True)
     return {"ok": True}

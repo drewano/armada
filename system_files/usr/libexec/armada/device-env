@@ -53,6 +53,8 @@ if [[ -r "$sleep_config" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$line" =~ ^[[:space:]]*suspend_mode[[:space:]]*=[[:space:]]*(fake|s2idle)[[:space:]]*$ ]]; then
             ARMADA_SUSPEND_MODE=${BASH_REMATCH[1]}
+        elif [[ "$line" =~ ^[[:space:]]*cpuidle_governor[[:space:]]*=[[:space:]]*([A-Za-z0-9_-]+)[[:space:]]*$ ]]; then
+            ARMADA_CPUIDLE_GOVERNOR=${BASH_REMATCH[1]}
         fi
     done <"$sleep_config"
 fi
@@ -110,6 +112,7 @@ vars=(
     ARMADA_PROTON_DEFAULTS
     ARMADA_SUSPEND_MODE
     ARMADA_SYNC_SUSPEND
+    ARMADA_CPUIDLE_GOVERNOR
     ARMADA_PRIMARY_CONNECTOR
     ARMADA_PRIMARY_BACKLIGHT
     ARMADA_SECONDARY_CONNECTOR

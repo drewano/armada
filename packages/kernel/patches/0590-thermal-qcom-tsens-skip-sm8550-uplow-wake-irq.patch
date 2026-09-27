@@ -1,0 +1,36 @@
+From: drewano <drewano@users.noreply.github.com>
+Subject: [PATCH] thermal: qcom: tsens: skip SM8550 uplow wake IRQ
+
+Linux 7.2 adaptation of Pocknix/ROCKNIX 0203: on SM8550 the ordinary
+uplow IRQ wakes s2idle immediately (pm_wakeup_irq points at it on every
+attempt), so it is left non-wakeup on qcom,sm8550; the critical
+threshold stays armed. Our 0204 already masks the low thresholds during
+suspend.
+
+
+Signed-off-by: drewano <drewano@users.noreply.github.com>
+---
+diff --git a/drivers/thermal/qcom/tsens.c b/drivers/thermal/qcom/tsens.c
+index 51f20ef..6df6420 100644
+--- a/drivers/thermal/qcom/tsens.c
++++ b/drivers/thermal/qcom/tsens.c
+@@ -1320,10 +1320,16 @@ int tsens_suspend_common(struct tsens_priv *priv)
+ 	if (!device_may_wakeup(priv->dev))
+ 		return 0;
+ 
+-	if (priv->feat->combo_int)
++	if (priv->feat->combo_int) {
+ 		enable_irq_wake(priv->combined_irq);
+-	else {
+-		enable_irq_wake(priv->uplow_irq);
++	} else {
++		/*
++		 * On SM8550 the ordinary uplow IRQ wakes s2idle immediately
++		 * (pm_wakeup_irq points at it on every attempt); leave it as
++		 * non-wakeup. Critical stays armed. (Pocknix/ROCKNIX 0203.)
++		 */
++		if (!of_machine_is_compatible("qcom,sm8550"))
++			enable_irq_wake(priv->uplow_irq);
+ 		if (priv->feat->crit_int)
+ 			enable_irq_wake(priv->crit_irq);
+ 	}

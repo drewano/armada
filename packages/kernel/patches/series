@@ -106,6 +106,21 @@ v9_20260729_qualcomm_crypto_qce_runtime_pm_interconnect.patch
 0513-PCI-qcom-honour-an-opp-suspend-opp-as-the-non-s2ram-memory-floor.patch
 0514-PCI-qcom-honor-iommu-map-cell-count.patch
 0514a-of-property-honor-iommu-cells-in-iommu-map-devlinks.patch
+0521-mmc-sdhci-msm-mask-controller-irqs-while-runtime-suspended.patch
+0522-usb-dwc3-qcom-skip-phy-management-by-usb-core.patch
+0530-hwmon-pwm-fan-quiesce-tach-irqs-and-rpm-timer-across-suspend.patch
+
+# ============== Pocknix/ROCKNIX deep-suspend stack port (armada#274) ==============
+0560-regulator-qcom-rpmh-add-suspend-state-support.patch
+0561-regulator-core-apply-mem-state-for-s2idle.patch
+0570-scsi-ufs-qcom-deep-suspend-set.patch
+0571-scsi-ufs-qcom-keep-mphy-powered-on-hibern8-park.patch
+0572-scsi-ufs-hold-clk-gating-across-system-pm.patch
+0573-scsi-ufs-recover-hibern8-enter-clk-gating.patch
+0590-thermal-qcom-tsens-skip-sm8550-uplow-wake-irq.patch
+
+# ============== Qualcomm Vendor LPM Cpuidle Governors ==============
+0595-cpuidle-governors-qcom-lpm.patch
 
 # ============== SM8550 DTSI prerequisites ==============
 0001-pcie-update-sm8550-dtsi.patch
