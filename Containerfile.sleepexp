@@ -1,0 +1,21 @@
+# Image dérivée "sleep experiment" — hermétique :
+#   base  = le dernier testing VERT de l'upstream, figé par digest (20260926.939fb84,
+#           le merge #545 sleep-savings — exactement l'image que la console tourne)
+#   kernel = le paquet fork déjà buildé (pkg/kernel, digest-stable)
+# Aucune résolution de dépôt tiers (terra44 en incident) : le swap se fait sur
+# le rpmdb local et l'initramfs est régénéré dans l'image.
+ARG BASE=ghcr.io/armada-os/armada@sha256:0822f9db1510c802c70795b10f5eb8ae4b2fe36f16b80a90fa7315e4f4baf208
+ARG KERNEL=ghcr.io/drewano/armada/pkg/kernel:ac304b2551409fa8fbce870aa21eb079
+
+FROM ${KERNEL} AS kernel
+
+FROM ${BASE}
+
+COPY --from=kernel /kernel /packages/kernel
+COPY build_files/sleepexp-install.sh /tmp/sleepexp-install.sh
+# Plomberie gouverneur (élection cpuidle_governor via sleep.conf) :
+COPY system_files/usr/libexec/armada/device-env \
+     system_files/usr/libexec/armada/device-quirks \
+     /usr/libexec/armada/
+
+RUN /tmp/sleepexp-install.sh && rm -f /tmp/sleepexp-install.sh

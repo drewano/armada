@@ -1,0 +1,45 @@
+name: Sleep exp image
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_ref:
+        description: 'pkg/kernel image tag (short sha)'
+        required: true
+        default: 'ac304b2551409fa8fbce870aa21eb079'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Derivative sleep-exp image
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install buildah
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq buildah
+          buildah --version
+
+      - name: Login to ghcr.io
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | buildah login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build derivative image
+        run: |
+          buildah bud \
+            -f Containerfile.sleepexp \
+            --build-arg KERNEL=ghcr.io/drewano/armada/pkg/kernel:${{ inputs.kernel_ref }} \
+            -t ghcr.io/drewano/armada:sleepexp .
+
+      - name: Push
+        run: |
+          buildah push ghcr.io/drewano/armada:sleepexp
+
+      - name: Show digest
+        run: |
+          buildah inspect --format '{{.FromImageDigest}}' ghcr.io/drewano/armada:sleepexp || true
